@@ -46,8 +46,8 @@
                                 !window.location.hostname.startsWith('192.168.');
             
             if (isProduction) {
-                // TODO: Replace this with your actual Render backend URL after deployment
-                return 'https://YOUR_RENDER_BACKEND_URL.onrender.com/api';
+                // Production: Use Render backend URL
+                return 'https://stocksense-backend-pd7x.onrender.com/api';
             }
             // Development - use localhost
             return 'http://localhost:5001/api';
