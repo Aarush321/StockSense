@@ -3,11 +3,12 @@
   # Base directory is root, publish directory is frontend
   base = "."
   publish = "frontend"
-  # No build command needed since we're using standalone HTML
+  # Disable auto-detection of build tools - we're serving static HTML
+  command = "echo 'Serving static HTML - no build needed'"
 
 [[redirects]]
-  # Redirect all routes to index-standalone.html for SPA routing
+  # Redirect all routes to index.html for SPA routing
   from = "/*"
-  to = "/index-standalone.html"
+  to = "/index.html"
   status = 200
 
