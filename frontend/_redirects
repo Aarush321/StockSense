@@ -1,0 +1,4 @@
+# Netlify redirects file
+# Redirect all routes to index-standalone.html for SPA functionality
+/*    /index-standalone.html   200
+

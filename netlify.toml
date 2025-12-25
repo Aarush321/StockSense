@@ -1,0 +1,12 @@
+# Netlify Configuration
+[build]
+  # Netlify will serve files from the frontend directory
+  publish = "frontend"
+  # No build command needed since we're using standalone HTML
+
+[[redirects]]
+  # Redirect all routes to index-standalone.html for SPA routing
+  from = "/*"
+  to = "/index-standalone.html"
+  status = 200
+
