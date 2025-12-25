@@ -14,15 +14,39 @@ class AIService:
         
         if self.anthropic_key and 'your_' not in self.anthropic_key:
             try:
-                self.claude_client = anthropic.Anthropic(api_key=self.anthropic_key)
-                print(f"✅ Anthropic client initialized (key length: {len(self.anthropic_key)})")
+                # Initialize Anthropic client - explicitly only pass api_key
+                # Clear any proxy-related environment variables that might interfere
+                import os as os_env
+                old_http_proxy = os_env.environ.pop('HTTP_PROXY', None)
+                old_https_proxy = os_env.environ.pop('HTTPS_PROXY', None)
+                try:
+                    self.claude_client = anthropic.Anthropic(api_key=self.anthropic_key)
+                    print(f"✅ Anthropic client initialized (key length: {len(self.anthropic_key)})")
+                finally:
+                    # Restore proxy env vars if they existed
+                    if old_http_proxy:
+                        os_env.environ['HTTP_PROXY'] = old_http_proxy
+                    if old_https_proxy:
+                        os_env.environ['HTTPS_PROXY'] = old_https_proxy
             except Exception as e:
                 print(f"❌ Failed to initialize Anthropic client: {e}")
         
         if self.openai_key and 'your_' not in self.openai_key:
             try:
-                self.openai_client = openai.OpenAI(api_key=self.openai_key)
-                print(f"✅ OpenAI client initialized (key length: {len(self.openai_key)})")
+                # Initialize OpenAI client - explicitly only pass api_key
+                # Clear any proxy-related environment variables that might interfere
+                import os as os_env
+                old_http_proxy = os_env.environ.pop('HTTP_PROXY', None)
+                old_https_proxy = os_env.environ.pop('HTTPS_PROXY', None)
+                try:
+                    self.openai_client = openai.OpenAI(api_key=self.openai_key)
+                    print(f"✅ OpenAI client initialized (key length: {len(self.openai_key)})")
+                finally:
+                    # Restore proxy env vars if they existed
+                    if old_http_proxy:
+                        os_env.environ['HTTP_PROXY'] = old_http_proxy
+                    if old_https_proxy:
+                        os_env.environ['HTTPS_PROXY'] = old_https_proxy
             except Exception as e:
                 print(f"❌ Failed to initialize OpenAI client: {e}")
         
