@@ -15,7 +15,22 @@ class StockService:
         """Get company overview using yfinance"""
         try:
             ticker = yf.Ticker(symbol)
-            info = ticker.info
+            try:
+                info = ticker.info
+            except requests.exceptions.HTTPError as e:
+                # Handle rate limiting gracefully
+                if hasattr(e, 'response') and e.response and e.response.status_code == 429:
+                    print(f"yfinance info rate limited (429) for {symbol}")
+                    # Return minimal data so the request doesn't fail completely
+                    return {
+                        'error': 'Rate limited - please try again in a moment',
+                        'name': symbol,
+                        'sector': 'N/A',
+                        'marketCap': 0,
+                        'currentPrice': 0,
+                        'changePercent': 0
+                    }
+                raise
             
             # Get current price
             current_data = ticker.history(period='1d')
@@ -296,7 +311,18 @@ class StockService:
         """Get news from Yahoo Finance via yfinance"""
         try:
             ticker = yf.Ticker(symbol)
-            news = ticker.news
+            try:
+                news = ticker.news
+            except (requests.exceptions.JSONDecodeError, ValueError) as e:
+                # Yahoo Finance sometimes returns invalid JSON when rate-limited
+                print(f"yfinance news JSON decode error (likely rate limited): {e}")
+                return []
+            except requests.exceptions.HTTPError as e:
+                # Handle 429 (rate limit) and other HTTP errors
+                if hasattr(e.response, 'status_code') and e.response.status_code == 429:
+                    print(f"yfinance news rate limited (429) for {symbol}")
+                    return []
+                raise
             
             if news and len(news) > 0:
                 result = []
@@ -364,10 +390,20 @@ class StockService:
                         continue
                 
                 return result
+        except requests.exceptions.HTTPError as e:
+            # Handle rate limiting and other HTTP errors gracefully
+            if hasattr(e, 'response') and e.response and e.response.status_code == 429:
+                print(f"yfinance news rate limited (429) for {symbol} - returning empty list")
+            else:
+                print(f"yfinance news HTTP error: {e}")
+            return []
+        except (requests.exceptions.JSONDecodeError, ValueError) as e:
+            # Handle JSON decode errors (often caused by rate limiting)
+            print(f"yfinance news JSON decode error for {symbol}: {e}")
+            return []
         except Exception as e:
             print(f"yfinance news error: {e}")
-            import traceback
-            traceback.print_exc()
+            # Don't print full traceback in production - just log the error
         return []
     
     def get_social_sentiment(self, symbol: str) -> Dict:

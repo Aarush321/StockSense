@@ -551,11 +551,9 @@ Please provide a helpful, educational response. Remember: NO buy/sell recommenda
                 sys.stderr.flush()
                 # Try multiple Claude model names in order of preference
                 claude_models = [
-                    "claude-3-5-sonnet-20240620",  # Try this first
-                    "claude-3-5-sonnet",           # Without date suffix
-                    "claude-3-opus",               # Alternative
-                    "claude-3-sonnet",             # Another alternative
-                    "claude-3-haiku-20240307"      # Last resort (works but is faster/cheaper)
+                    "claude-3-haiku-20240307",     # Fastest and most reliable
+                    "claude-3-5-sonnet-20241022",  # Newer model if available
+                    "claude-3-5-haiku-20241022"    # Newer haiku version
                 ]
                 
                 for model in claude_models:
