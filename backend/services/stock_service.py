@@ -896,10 +896,16 @@ class StockService:
             for ticker_symbol in tickers:
                 try:
                     ticker = yf.Ticker(ticker_symbol)
-                    news = ticker.news
-                    if news and len(news) > 0:
-                        all_news_items.extend(news[:limit * 2])
-                except:
+                    try:
+                        news = ticker.news
+                        if news and len(news) > 0:
+                            all_news_items.extend(news[:limit * 2])
+                    except (requests.exceptions.JSONDecodeError, ValueError, requests.exceptions.HTTPError) as e:
+                        # Skip if rate limited or JSON error
+                        if isinstance(e, requests.exceptions.HTTPError) and hasattr(e, 'response') and e.response and e.response.status_code == 429:
+                            print(f"Market news rate limited for {ticker_symbol}")
+                        continue
+                except Exception:
                     continue
             
             if all_news_items and len(all_news_items) > 0:
@@ -983,6 +989,15 @@ class StockService:
                         continue
                 
                 return result
+        except requests.exceptions.HTTPError as e:
+            if hasattr(e, 'response') and e.response and e.response.status_code == 429:
+                print(f"yfinance market news rate limited (429)")
+            else:
+                print(f"yfinance market news HTTP error: {e}")
+            return []
+        except (requests.exceptions.JSONDecodeError, ValueError) as e:
+            print(f"yfinance market news JSON decode error: {e}")
+            return []
         except Exception as e:
             print(f"yfinance market news error: {e}")
         return []
@@ -991,7 +1006,14 @@ class StockService:
         """Get analyst ratings and price targets"""
         try:
             ticker = yf.Ticker(symbol)
-            info = ticker.info
+            try:
+                info = ticker.info
+            except requests.exceptions.HTTPError as e:
+                # Handle rate limiting gracefully
+                if hasattr(e, 'response') and e.response and e.response.status_code == 429:
+                    print(f"Analyst ratings rate limited (429) for {symbol}")
+                    return {'buy': 0, 'hold': 0, 'sell': 0, 'targetPrice': None, 'error': 'Rate limited'}
+                raise
             
             buy_count = 0
             hold_count = 0
