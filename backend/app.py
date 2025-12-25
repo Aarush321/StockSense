@@ -16,8 +16,9 @@ app = Flask(__name__)
 
 # Configure CORS for production (allow Netlify domain)
 # Update ALLOWED_ORIGINS in Render environment variables with your Netlify URL
-allowed_origins = os.getenv('ALLOWED_ORIGINS', 'http://localhost:3000,http://localhost:5000,http://127.0.0.1:5000').split(',')
-CORS(app, origins=allowed_origins, supports_credentials=True)
+allowed_origins_str = os.getenv('ALLOWED_ORIGINS', 'http://localhost:3000,http://localhost:5000,http://127.0.0.1:5000,http://localhost:5001')
+allowed_origins = [origin.strip() for origin in allowed_origins_str.split(',') if origin.strip()]
+CORS(app, resources={r"/api/*": {"origins": allowed_origins}}, supports_credentials=True)
 
 # Initialize database
 init_db()
