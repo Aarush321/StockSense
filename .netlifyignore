@@ -1,0 +1,7 @@
+# Ignore Vite/React build files so Netlify doesn't try to build them
+frontend/vite.config.js
+frontend/src/
+frontend/package.json
+frontend/postcss.config.js
+frontend/tailwind.config.js
+
