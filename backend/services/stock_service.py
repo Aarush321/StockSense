@@ -729,8 +729,11 @@ class StockService:
                 print(f"Social sentiment rate limited (429) for {symbol} - using fallback")
             else:
                 print(f"Social sentiment HTTP error: {e}")
-            # Fallback to default if error
-            return {
+        except Exception as e:
+            print(f"Social sentiment error: {e}")
+        
+        # Always return fallback sentiment data (never return empty)
+        return {
                 'stocktwits': {
                     'positive': 50,
                     'neutral': 30,

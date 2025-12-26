@@ -51,20 +51,32 @@ def analyze_stock():
             sentiment_future = executor.submit(stock_service.get_social_sentiment, symbol)
             analyst_future = executor.submit(stock_service.get_analyst_ratings, symbol)
             
-            # Get other data with shorter timeouts (can proceed without them)
+            # Get other data with reasonable timeouts (these need more time for multiple API calls)
             try:
-                news_data = news_future.result(timeout=1.5)
+                news_data = news_future.result(timeout=5)  # Increased from 1.5 to 5 seconds
             except FutureTimeoutError:
+                print(f"News data timeout for {symbol}")
+                news_data = []
+            except Exception as e:
+                print(f"News data error for {symbol}: {e}")
                 news_data = []
             
             try:
-                sentiment_data = sentiment_future.result(timeout=1.5)
+                sentiment_data = sentiment_future.result(timeout=5)  # Increased from 1.5 to 5 seconds
             except FutureTimeoutError:
-                sentiment_data = {}
+                print(f"Sentiment data timeout for {symbol}")
+                sentiment_data = {}  # Social sentiment has fallbacks, so return empty dict
+            except Exception as e:
+                print(f"Sentiment data error for {symbol}: {e}")
+                sentiment_data = {}  # Will use fallback sentiment
             
             try:
-                analyst_data = analyst_future.result(timeout=1.5)
+                analyst_data = analyst_future.result(timeout=5)  # Increased from 1.5 to 5 seconds
             except FutureTimeoutError:
+                print(f"Analyst data timeout for {symbol}")
+                analyst_data = {}
+            except Exception as e:
+                print(f"Analyst data error for {symbol}: {e}")
                 analyst_data = {}
         
         # Generate AI recommendation with 3-second timeout (start immediately after company data)
