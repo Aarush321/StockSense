@@ -1,6 +1,7 @@
 import requests
 import os
 import re
+import time
 from datetime import datetime, timedelta
 import yfinance as yf
 from typing import Dict, List, Optional
@@ -10,10 +11,72 @@ class StockService:
         self.alpha_vantage_key = os.getenv('ALPHA_VANTAGE_KEY', '')
         self.news_api_key = os.getenv('NEWS_API_KEY', '')
         self.finnhub_key = os.getenv('FINNHUB_API_KEY', '')
+        self._last_yfinance_request = 0
+        self._yfinance_delay = 0.5  # Minimum 0.5 seconds between Yahoo Finance requests
+    
+    def _throttle_yfinance(self):
+        """Add delay between Yahoo Finance requests to avoid rate limiting"""
+        current_time = time.time()
+        time_since_last = current_time - self._last_yfinance_request
+        if time_since_last < self._yfinance_delay:
+            time.sleep(self._yfinance_delay - time_since_last)
+        self._last_yfinance_request = time.time()
+    
+    def _get_alpha_vantage_overview(self, symbol: str) -> Optional[Dict]:
+        """Get company overview from Alpha Vantage as fallback"""
+        if not self.alpha_vantage_key or 'your_' in self.alpha_vantage_key:
+            return None
+        
+        try:
+            # Alpha Vantage Overview endpoint
+            url = 'https://www.alphavantage.co/query'
+            params = {
+                'function': 'OVERVIEW',
+                'symbol': symbol,
+                'apikey': self.alpha_vantage_key
+            }
+            response = requests.get(url, params=params, timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                if 'Symbol' in data and data['Symbol']:  # Valid response
+                    return {
+                        'name': data.get('Name', symbol),
+                        'sector': data.get('Sector', 'N/A'),
+                        'industry': data.get('Industry', 'N/A'),
+                        'marketCap': int(float(data.get('MarketCapitalization', 0))),
+                        'peRatio': float(data.get('PERatio', 0)) if data.get('PERatio') != 'None' else None,
+                        'description': data.get('Description', ''),
+                        'currentPrice': float(data.get('52WeekHigh', 0)) if data.get('52WeekHigh') != 'None' else 0,
+                        'changePercent': 0  # Alpha Vantage doesn't provide this in overview
+                    }
+        except Exception as e:
+            print(f"Alpha Vantage overview error: {e}")
+        return None
     
     def get_company_overview(self, symbol: str) -> Dict:
-        """Get company overview using yfinance"""
+        """Get company overview using yfinance with Alpha Vantage fallback"""
+        # Try Alpha Vantage first (has better rate limits)
+        if self.alpha_vantage_key and 'your_' not in self.alpha_vantage_key:
+            alpha_data = self._get_alpha_vantage_overview(symbol)
+            if alpha_data:
+                # Still try to get price from yfinance (lighter request)
+                try:
+                    self._throttle_yfinance()
+                    ticker = yf.Ticker(symbol)
+                    current_data = ticker.history(period='1d')
+                    if not current_data.empty:
+                        alpha_data['currentPrice'] = round(current_data['Close'].iloc[-1], 2)
+                        # Calculate change if we have previous close
+                        if len(current_data) > 1:
+                            prev_close = current_data['Close'].iloc[-2]
+                            alpha_data['changePercent'] = round(((alpha_data['currentPrice'] - prev_close) / prev_close * 100), 2)
+                except:
+                    pass
+                return alpha_data
+        
+        # Fallback to yfinance
         try:
+            self._throttle_yfinance()  # Add delay to avoid rate limiting
             ticker = yf.Ticker(symbol)
             info = None
             try:
@@ -54,6 +117,7 @@ class StockService:
             
             # Get current price - handle rate limiting here too
             try:
+                self._throttle_yfinance()  # Add delay before history request
                 current_data = ticker.history(period='1d')
                 current_price = current_data['Close'].iloc[-1] if not current_data.empty else (info.get('currentPrice', 0) if info else 0)
             except requests.exceptions.HTTPError as e:
@@ -357,6 +421,7 @@ class StockService:
     def _get_yfinance_news(self, symbol: str, limit: int) -> List[Dict]:
         """Get news from Yahoo Finance via yfinance"""
         try:
+            self._throttle_yfinance()  # Add delay to avoid rate limiting
             ticker = yf.Ticker(symbol)
             try:
                 news = ticker.news
@@ -456,18 +521,11 @@ class StockService:
     def get_social_sentiment(self, symbol: str) -> Dict:
         """Get social media sentiment from StockTwits, Reddit (scraped), and Twitter"""
         try:
-            # Get stock price change to influence sentiment
-            ticker = yf.Ticker(symbol)
-            try:
-                info = ticker.info
-                change_percent = info.get('regularMarketChangePercent', 0) or info.get('changePercent', 0) or 0
-            except requests.exceptions.HTTPError as e:
-                # Handle rate limiting gracefully
-                if hasattr(e, 'response') and e.response and e.response.status_code == 429:
-                    print(f"Social sentiment rate limited (429) for {symbol} - using fallback")
-                    change_percent = 0
-                else:
-                    change_percent = 0
+            # Get stock price change to influence sentiment - skip yfinance to avoid rate limits
+            # Use StockTwits API directly which is free and doesn't rate limit as much
+            change_percent = 0
+            # Only try yfinance if we really need it, and with throttling
+            # For now, skip it to avoid rate limits - sentiment works without it
             
             # Try to get real sentiment data
             stocktwits_data = self._get_stocktwits_sentiment(symbol)
@@ -954,6 +1012,7 @@ class StockService:
             
             for ticker_symbol in tickers:
                 try:
+                    self._throttle_yfinance()  # Add delay between each ticker request
                     ticker = yf.Ticker(ticker_symbol)
                     try:
                         news = ticker.news
@@ -1064,6 +1123,7 @@ class StockService:
     def get_analyst_ratings(self, symbol: str) -> Dict:
         """Get analyst ratings and price targets"""
         try:
+            self._throttle_yfinance()  # Add delay to avoid rate limiting
             ticker = yf.Ticker(symbol)
             try:
                 info = ticker.info

@@ -37,19 +37,19 @@ def analyze_stock():
         if not symbol:
             return jsonify({'error': 'Stock symbol is required'}), 400
         
-        # Fetch all data in parallel for speed - use reasonable timeouts
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            # Submit all data fetching tasks in parallel
-            company_future = executor.submit(stock_service.get_company_overview, symbol)
+        # Fetch data sequentially with delays to avoid Yahoo Finance rate limiting
+        # Company data first (needed for AI)
+        try:
+            company_data = stock_service.get_company_overview(symbol)
+        except Exception as e:
+            print(f"Company overview error: {e}")
+            company_data = {}
+        
+        # Then fetch other data in parallel (but with fewer workers to reduce rate limits)
+        with ThreadPoolExecutor(max_workers=2) as executor:  # Reduced from 4 to 2
             news_future = executor.submit(stock_service.get_recent_news, symbol)
             sentiment_future = executor.submit(stock_service.get_social_sentiment, symbol)
             analyst_future = executor.submit(stock_service.get_analyst_ratings, symbol)
-            
-            # Wait for company data first (needed for AI), then get others
-            try:
-                company_data = company_future.result(timeout=3)
-            except FutureTimeoutError:
-                company_data = {}
             
             # Get other data with shorter timeouts (can proceed without them)
             try:
