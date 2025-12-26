@@ -1255,7 +1255,29 @@ class StockService:
         return []
     
     def get_analyst_ratings(self, symbol: str) -> Dict:
-        """Get analyst ratings and price targets"""
+        """Get analyst ratings and price targets - try Finnhub first, then Yahoo Finance"""
+        # Try Finnhub first (better rate limits)
+        if self.finnhub_key and 'your_' not in self.finnhub_key:
+            finnhub_recs = self._get_finnhub_recommendations(symbol)
+            if finnhub_recs:
+                # Try to get target price from Yahoo Finance if available
+                target_price = None
+                try:
+                    self._throttle_yfinance()
+                    ticker = yf.Ticker(symbol)
+                    info = ticker.info
+                    target_price = info.get('targetMeanPrice') or info.get('targetHighPrice') or info.get('targetLowPrice')
+                except:
+                    pass
+                
+                return {
+                    'buy': finnhub_recs['buy'],
+                    'hold': finnhub_recs['hold'],
+                    'sell': finnhub_recs['sell'],
+                    'targetPrice': round(target_price, 2) if target_price else None
+                }
+        
+        # Fallback to Yahoo Finance
         try:
             self._throttle_yfinance()  # Add delay to avoid rate limiting
             ticker = yf.Ticker(symbol)
