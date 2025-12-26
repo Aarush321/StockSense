@@ -22,6 +22,120 @@ class StockService:
             time.sleep(self._yfinance_delay - time_since_last)
         self._last_yfinance_request = time.time()
     
+    def _get_finnhub_quote(self, symbol: str) -> Optional[Dict]:
+        """Get stock quote (price and change) from Finnhub"""
+        if not self.finnhub_key or 'your_' in self.finnhub_key:
+            return None
+        
+        try:
+            url = 'https://finnhub.io/api/v1/quote'
+            params = {
+                'symbol': symbol,
+                'token': self.finnhub_key
+            }
+            response = requests.get(url, params=params, timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                if 'c' in data and data['c']:  # Current price exists
+                    current_price = data.get('c', 0)
+                    previous_close = data.get('pc', current_price)
+                    change_percent = data.get('dp', 0)  # Daily percentage change
+                    return {
+                        'currentPrice': round(current_price, 2),
+                        'previousClose': round(previous_close, 2),
+                        'changePercent': round(change_percent, 2),
+                        'high': round(data.get('h', 0), 2),
+                        'low': round(data.get('l', 0), 2),
+                        'open': round(data.get('o', 0), 2)
+                    }
+        except Exception as e:
+            print(f"Finnhub quote error: {e}")
+        return None
+    
+    def _get_alpha_vantage_quote(self, symbol: str) -> Optional[Dict]:
+        """Get stock quote from Alpha Vantage"""
+        if not self.alpha_vantage_key or 'your_' in self.alpha_vantage_key:
+            return None
+        
+        try:
+            url = 'https://www.alphavantage.co/query'
+            params = {
+                'function': 'GLOBAL_QUOTE',
+                'symbol': symbol,
+                'apikey': self.alpha_vantage_key
+            }
+            response = requests.get(url, params=params, timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                quote = data.get('Global Quote', {})
+                if quote and quote.get('05. price'):
+                    current_price = float(quote.get('05. price', 0))
+                    previous_close = float(quote.get('08. previous close', current_price))
+                    change_percent = float(quote.get('10. change percent', '0%').replace('%', ''))
+                    return {
+                        'currentPrice': round(current_price, 2),
+                        'previousClose': round(previous_close, 2),
+                        'changePercent': round(change_percent, 2)
+                    }
+        except Exception as e:
+            print(f"Alpha Vantage quote error: {e}")
+        return None
+    
+    def _get_finnhub_recommendations(self, symbol: str) -> Optional[Dict]:
+        """Get analyst recommendations from Finnhub"""
+        if not self.finnhub_key or 'your_' in self.finnhub_key:
+            return None
+        
+        try:
+            url = 'https://finnhub.io/api/v1/stock/recommendation'
+            params = {
+                'symbol': symbol,
+                'token': self.finnhub_key
+            }
+            response = requests.get(url, params=params, timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                if data and isinstance(data, list) and len(data) > 0:
+                    # Get most recent recommendation
+                    latest = data[0]
+                    buy = latest.get('strongBuy', 0) + latest.get('buy', 0)
+                    hold = latest.get('hold', 0)
+                    sell = latest.get('strongSell', 0) + latest.get('sell', 0)
+                    total = buy + hold + sell
+                    
+                    if total > 0:
+                        return {
+                            'buy': buy,
+                            'hold': hold,
+                            'sell': sell,
+                            'total': total,
+                            'period': latest.get('period', ''),
+                            'targetPrice': None  # Finnhub doesn't provide target price in recommendations
+                        }
+        except Exception as e:
+            print(f"Finnhub recommendations error: {e}")
+        return None
+    
+    def _get_alpha_vantage_recommendations(self, symbol: str) -> Optional[Dict]:
+        """Get analyst recommendations from Alpha Vantage"""
+        if not self.alpha_vantage_key or 'your_' in self.alpha_vantage_key:
+            return None
+        
+        try:
+            url = 'https://www.alphavantage.co/query'
+            params = {
+                'function': 'TIME_SERIES_INTRADAY',  # Alpha Vantage doesn't have direct recommendations
+                'symbol': symbol,
+                'interval': '1min',
+                'apikey': self.alpha_vantage_key
+            }
+            # Actually, Alpha Vantage doesn't have a recommendations endpoint
+            # So we'll skip this and use Finnhub
+            return None
+        except Exception as e:
+            print(f"Alpha Vantage recommendations error: {e}")
+        return None
+    
     def _get_alpha_vantage_overview(self, symbol: str) -> Optional[Dict]:
         """Get company overview from Alpha Vantage as fallback"""
         if not self.alpha_vantage_key or 'your_' in self.alpha_vantage_key:
@@ -54,24 +168,38 @@ class StockService:
         return None
     
     def get_company_overview(self, symbol: str) -> Dict:
-        """Get company overview using yfinance with Alpha Vantage fallback"""
-        # Try Alpha Vantage first (has better rate limits)
+        """Get company overview using yfinance with Alpha Vantage and Finnhub fallbacks"""
+        # Try to get price/quote from Finnhub first (best rate limits)
+        quote_data = None
+        if self.finnhub_key and 'your_' not in self.finnhub_key:
+            quote_data = self._get_finnhub_quote(symbol)
+        
+        # Try Alpha Vantage for company info (has better rate limits than Yahoo)
         if self.alpha_vantage_key and 'your_' not in self.alpha_vantage_key:
             alpha_data = self._get_alpha_vantage_overview(symbol)
             if alpha_data:
-                # Still try to get price from yfinance (lighter request)
-                try:
-                    self._throttle_yfinance()
-                    ticker = yf.Ticker(symbol)
-                    current_data = ticker.history(period='1d')
-                    if not current_data.empty:
-                        alpha_data['currentPrice'] = round(current_data['Close'].iloc[-1], 2)
-                        # Calculate change if we have previous close
-                        if len(current_data) > 1:
-                            prev_close = current_data['Close'].iloc[-2]
-                            alpha_data['changePercent'] = round(((alpha_data['currentPrice'] - prev_close) / prev_close * 100), 2)
-                except:
-                    pass
+                # Use Finnhub quote if available, otherwise try Alpha Vantage quote
+                if quote_data:
+                    alpha_data['currentPrice'] = quote_data['currentPrice']
+                    alpha_data['changePercent'] = quote_data['changePercent']
+                else:
+                    av_quote = self._get_alpha_vantage_quote(symbol)
+                    if av_quote:
+                        alpha_data['currentPrice'] = av_quote['currentPrice']
+                        alpha_data['changePercent'] = av_quote['changePercent']
+                    else:
+                        # Last resort: try yfinance for price only
+                        try:
+                            self._throttle_yfinance()
+                            ticker = yf.Ticker(symbol)
+                            current_data = ticker.history(period='1d')
+                            if not current_data.empty:
+                                alpha_data['currentPrice'] = round(current_data['Close'].iloc[-1], 2)
+                                if len(current_data) > 1:
+                                    prev_close = current_data['Close'].iloc[-2]
+                                    alpha_data['changePercent'] = round(((alpha_data['currentPrice'] - prev_close) / prev_close * 100), 2)
+                        except:
+                            pass
                 return alpha_data
         
         # Fallback to yfinance
@@ -521,11 +649,17 @@ class StockService:
     def get_social_sentiment(self, symbol: str) -> Dict:
         """Get social media sentiment from StockTwits, Reddit (scraped), and Twitter"""
         try:
-            # Get stock price change to influence sentiment - skip yfinance to avoid rate limits
-            # Use StockTwits API directly which is free and doesn't rate limit as much
+            # Get stock price change from Finnhub (better than Yahoo Finance)
             change_percent = 0
-            # Only try yfinance if we really need it, and with throttling
-            # For now, skip it to avoid rate limits - sentiment works without it
+            if self.finnhub_key and 'your_' not in self.finnhub_key:
+                quote = self._get_finnhub_quote(symbol)
+                if quote:
+                    change_percent = quote.get('changePercent', 0)
+            # If Finnhub fails, try Alpha Vantage
+            elif self.alpha_vantage_key and 'your_' not in self.alpha_vantage_key:
+                quote = self._get_alpha_vantage_quote(symbol)
+                if quote:
+                    change_percent = quote.get('changePercent', 0)
             
             # Try to get real sentiment data
             stocktwits_data = self._get_stocktwits_sentiment(symbol)
