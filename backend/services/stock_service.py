@@ -15,26 +15,55 @@ class StockService:
         """Get company overview using yfinance"""
         try:
             ticker = yf.Ticker(symbol)
+            info = None
             try:
                 info = ticker.info
             except requests.exceptions.HTTPError as e:
                 # Handle rate limiting gracefully
                 if hasattr(e, 'response') and e.response and e.response.status_code == 429:
                     print(f"yfinance info rate limited (429) for {symbol}")
-                    # Return minimal data so the request doesn't fail completely
+                    # Try to get price from history as fallback
+                    try:
+                        current_data = ticker.history(period='1d')
+                        if not current_data.empty:
+                            current_price = current_data['Close'].iloc[-1]
+                            return {
+                                'error': 'Rate limited - limited data available',
+                                'name': symbol,
+                                'sector': 'N/A',
+                                'industry': 'N/A',
+                                'marketCap': 0,
+                                'currentPrice': round(current_price, 2),
+                                'changePercent': 0,
+                                'description': 'Data temporarily unavailable due to rate limiting. Please try again in a moment.'
+                            }
+                    except:
+                        pass
+                    # Return minimal data if history also fails
                     return {
                         'error': 'Rate limited - please try again in a moment',
                         'name': symbol,
                         'sector': 'N/A',
+                        'industry': 'N/A',
                         'marketCap': 0,
                         'currentPrice': 0,
-                        'changePercent': 0
+                        'changePercent': 0,
+                        'description': 'Data temporarily unavailable due to rate limiting. Please try again in a moment.'
                     }
                 raise
             
-            # Get current price
-            current_data = ticker.history(period='1d')
-            current_price = current_data['Close'].iloc[-1] if not current_data.empty else info.get('currentPrice', 0)
+            # Get current price - handle rate limiting here too
+            try:
+                current_data = ticker.history(period='1d')
+                current_price = current_data['Close'].iloc[-1] if not current_data.empty else (info.get('currentPrice', 0) if info else 0)
+            except requests.exceptions.HTTPError as e:
+                if hasattr(e, 'response') and e.response and e.response.status_code == 429:
+                    print(f"yfinance history rate limited (429) for {symbol}")
+                    current_price = info.get('currentPrice', 0) if info else 0
+                else:
+                    current_price = info.get('currentPrice', 0) if info else 0
+            except Exception:
+                current_price = info.get('currentPrice', 0) if info else 0
             
             # Get previous close for change calculation
             prev_close = info.get('previousClose', current_price)
@@ -131,14 +160,32 @@ class StockService:
                 'returnOnAssets': round(return_on_assets * 100, 2) if return_on_assets else None,
                 'creditRating': credit_rating_str
             }
+        except requests.exceptions.HTTPError as e:
+            # Handle rate limiting and other HTTP errors
+            if hasattr(e, 'response') and e.response and e.response.status_code == 429:
+                print(f"Company overview rate limited (429) for {symbol}")
+                return {
+                    'error': 'Rate limited - please try again in a moment',
+                    'name': symbol,
+                    'sector': 'N/A',
+                    'industry': 'N/A',
+                    'marketCap': 0,
+                    'currentPrice': 0,
+                    'changePercent': 0,
+                    'description': 'Data temporarily unavailable due to rate limiting. Please try again in a moment.'
+                }
+            raise
         except Exception as e:
+            print(f"Company overview error: {e}")
             return {
                 'error': f'Failed to fetch company data: {str(e)}',
                 'name': symbol,
                 'sector': 'N/A',
+                'industry': 'N/A',
                 'marketCap': 0,
                 'currentPrice': 0,
-                'changePercent': 0
+                'changePercent': 0,
+                'description': 'Unable to fetch company data at this time.'
             }
     
     def get_recent_news(self, symbol: str, limit: int = 10) -> List[Dict]:
@@ -411,8 +458,16 @@ class StockService:
         try:
             # Get stock price change to influence sentiment
             ticker = yf.Ticker(symbol)
-            info = ticker.info
-            change_percent = info.get('regularMarketChangePercent', 0) or info.get('changePercent', 0) or 0
+            try:
+                info = ticker.info
+                change_percent = info.get('regularMarketChangePercent', 0) or info.get('changePercent', 0) or 0
+            except requests.exceptions.HTTPError as e:
+                # Handle rate limiting gracefully
+                if hasattr(e, 'response') and e.response and e.response.status_code == 429:
+                    print(f"Social sentiment rate limited (429) for {symbol} - using fallback")
+                    change_percent = 0
+                else:
+                    change_percent = 0
             
             # Try to get real sentiment data
             stocktwits_data = self._get_stocktwits_sentiment(symbol)
@@ -476,8 +531,12 @@ class StockService:
             
             return result
             
-        except Exception as e:
-            print(f"Social sentiment error: {e}")
+        except requests.exceptions.HTTPError as e:
+            # Handle rate limiting and other HTTP errors
+            if hasattr(e, 'response') and e.response and e.response.status_code == 429:
+                print(f"Social sentiment rate limited (429) for {symbol} - using fallback")
+            else:
+                print(f"Social sentiment HTTP error: {e}")
             # Fallback to default if error
             return {
                 'stocktwits': {
