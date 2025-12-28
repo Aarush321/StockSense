@@ -3,6 +3,7 @@ from flask_cors import CORS
 import os
 import jwt
 import re
+import secrets
 from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
