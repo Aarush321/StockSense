@@ -8,6 +8,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FutureTimeoutError
+import pandas as pd
 from services.stock_service import StockService
 from services.ai_service import AIService
 from database.db import (
@@ -400,6 +401,13 @@ def signup():
         # Get user data
         user_data = get_user_by_id(user_id)
         
+        # Export user to Excel file
+        try:
+            export_user_to_excel(email, user_data.get('name', ''), user_data.get('created_at', datetime.now()))
+        except Exception as e:
+            print(f"Error exporting user to Excel: {e}")
+            # Don't fail signup if Excel export fails
+        
         return jsonify({
             'message': 'User created successfully. Please check your email to verify your account.',
             'token': token,
@@ -472,26 +480,41 @@ def user_count():
         print(f"User count error: {e}")
         return jsonify({'error': 'Failed to get user count'}), 500
 
-@app.route('/api/admin/users', methods=['GET'])
-def get_users():
-    """Get all registered users (admin endpoint)"""
-    try:
-        users = get_all_users()
-        # Return only safe user data (no password hashes)
-        user_list = []
-        for user in users:
-            user_list.append({
-                'id': user.get('id'),
-                'email': user.get('email'),
-                'name': user.get('name'),
-                'created_at': user.get('created_at'),
-                'last_login': user.get('last_login'),
-                'email_verified': bool(user.get('email_verified', 0))
-            })
-        return jsonify({'users': user_list, 'count': len(user_list)}), 200
-    except Exception as e:
-        print(f"Error getting users: {e}")
-        return jsonify({'error': str(e)}), 500
+def export_user_to_excel(email, name, created_at):
+    """Export user data to Excel file"""
+    excel_path = Path(__file__).parent / 'users.xlsx'
+    
+    # Prepare user data
+    user_data = {
+        'Email': [email],
+        'Name': [name if name else ''],
+        'Created At': [created_at if isinstance(created_at, str) else created_at.strftime('%Y-%m-%d %H:%M:%S') if created_at else datetime.now().strftime('%Y-%m-%d %H:%M:%S')]
+    }
+    
+    # Check if file exists
+    if excel_path.exists():
+        # Read existing data
+        try:
+            df = pd.read_excel(excel_path)
+            # Check if email already exists
+            if email not in df['Email'].values:
+                # Append new user
+                new_row = pd.DataFrame(user_data)
+                df = pd.concat([df, new_row], ignore_index=True)
+                df.to_excel(excel_path, index=False)
+                print(f"Added user {email} to Excel file")
+            else:
+                print(f"User {email} already exists in Excel file")
+        except Exception as e:
+            print(f"Error reading Excel file: {e}")
+            # Create new file if read fails
+            df = pd.DataFrame(user_data)
+            df.to_excel(excel_path, index=False)
+    else:
+        # Create new Excel file
+        df = pd.DataFrame(user_data)
+        df.to_excel(excel_path, index=False)
+        print(f"Created new Excel file with user {email}")
 
 @app.route('/api/verify-token', methods=['POST'])
 def verify_user_token():
