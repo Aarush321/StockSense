@@ -1274,10 +1274,13 @@ class StockService:
                     pass
                 
                 return {
-                    'buy': finnhub_recs['buy'],
-                    'hold': finnhub_recs['hold'],
-                    'sell': finnhub_recs['sell'],
-                    'targetPrice': round(target_price, 2) if target_price else None
+                    'buyCount': finnhub_recs['buy'],
+                    'holdCount': finnhub_recs['hold'],
+                    'sellCount': finnhub_recs['sell'],
+                    'averagePriceTarget': round(target_price, 2) if target_price else None,
+                    'highPriceTarget': None,
+                    'lowPriceTarget': None,
+                    'recommendationKey': 'hold'  # Default recommendation
                 }
         
         # Fallback to Yahoo Finance
