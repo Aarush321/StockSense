@@ -1348,7 +1348,6 @@
             );
         }
 
-        // Main App Component
         // Signup Component
         function SignupForm({ onSwitchToLogin, onSuccess }) {
             const { signup, userCount } = useContext(AuthContext);
@@ -1525,7 +1524,7 @@
             );
         }
 
-        function App() {
+        function AppContent() {
             const [showSplash, setShowSplash] = useState(true);
             const [currentView, setCurrentView] = useState('search');
             const [selectedSymbol, setSelectedSymbol] = useState(null);
@@ -1537,8 +1536,7 @@
             }
 
             return (
-                <AuthProvider>
-                    <StockProvider>
+                <StockProvider>
                     <div className="min-h-screen bg-white relative overflow-hidden">
                         {/* Background gradient decoration */}
                         <div className="absolute inset-0 bg-gradient-to-br from-gray-50 via-white to-gray-50 opacity-50"></div>
@@ -1726,6 +1724,14 @@
                         </div>
                     </div>
                 </StockProvider>
+            );
+        }
+
+        function App() {
+            return (
+                <AuthProvider>
+                    <AppContent />
+                </AuthProvider>
             );
         }
 
