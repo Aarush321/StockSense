@@ -325,6 +325,24 @@
                 return data;
             };
 
+            const handleResendVerification = async () => {
+                const token = localStorage.getItem('authToken');
+                if (!token) throw new Error('Not logged in');
+                const data = await resendVerification(token);
+                return data;
+            };
+
+            const handleUpdateProfile = async (name) => {
+                const token = localStorage.getItem('authToken');
+                if (!token) throw new Error('Not logged in');
+                const data = await updateProfile(token, name);
+                // Update user state
+                if (data.user) {
+                    setUser({ ...user, ...data.user });
+                }
+                return data;
+            };
+
             const handleLogout = async () => {
                 await logout();
                 localStorage.removeItem('authToken');
