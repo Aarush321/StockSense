@@ -8,4 +8,5 @@ openai>=1.54.0
 gunicorn==21.2.0
 PyJWT==2.8.0
 werkzeug==3.0.1
+sendgrid==6.11.0
 

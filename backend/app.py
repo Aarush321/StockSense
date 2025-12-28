@@ -12,8 +12,12 @@ from services.stock_service import StockService
 from services.ai_service import AIService
 from database.db import (
     init_db, get_starred_stocks, add_starred_stock, remove_starred_stock,
-    create_user, get_user_by_email, update_last_login, get_user_count
+    create_user, get_user_by_email, get_user_by_id, update_last_login, get_user_count,
+    update_user_verification_token, verify_user_email, get_user_by_verification_token,
+    set_password_reset_token, get_user_by_reset_token, reset_user_password,
+    update_user_profile
 )
+from services.email_service import EmailService
 
 # Load .env file from the backend directory
 env_path = Path(__file__).parent / '.env'
@@ -36,6 +40,7 @@ init_db()
 # Initialize services
 stock_service = StockService()
 ai_service = AIService()
+email_service = EmailService()
 
 @app.route('/api/analyze', methods=['POST'])
 def analyze_stock():
@@ -342,15 +347,31 @@ def signup():
         if not user_id:
             return jsonify({'error': 'Failed to create user'}), 500
         
-        # Generate token
+        # Generate verification token
+        verification_token = secrets.token_urlsafe(32)
+        update_user_verification_token(user_id, verification_token)
+        
+        # Send verification email
+        try:
+            email_service.send_verification_email(email, verification_token)
+        except Exception as e:
+            print(f"Failed to send verification email: {e}")
+            # Continue anyway - user can request resend later
+        
+        # Generate auth token
         token = generate_token(user_id, email)
         
+        # Get user data
+        user_data = get_user_by_id(user_id)
+        
         return jsonify({
-            'message': 'User created successfully',
+            'message': 'User created successfully. Please check your email to verify your account.',
             'token': token,
             'user': {
                 'id': user_id,
-                'email': email
+                'email': email,
+                'email_verified': bool(user_data.get('email_verified', 0)),
+                'name': user_data.get('name')
             }
         }), 201
         
@@ -390,7 +411,9 @@ def login():
             'token': token,
             'user': {
                 'id': user['id'],
-                'email': user['email']
+                'email': user['email'],
+                'email_verified': bool(user.get('email_verified', 0)),
+                'name': user.get('name')
             }
         }), 200
         
@@ -425,19 +448,228 @@ def verify_user_token():
         
         payload = verify_token(token)
         if payload:
-            return jsonify({
-                'valid': True,
-                'user': {
-                    'id': payload.get('user_id'),
-                    'email': payload.get('email')
-                }
-            }), 200
-        else:
-            return jsonify({'valid': False}), 200
+            user_id = payload.get('user_id')
+            user_data = get_user_by_id(user_id)
+            if user_data:
+                return jsonify({
+                    'valid': True,
+                    'user': {
+                        'id': user_id,
+                        'email': payload.get('email'),
+                        'email_verified': bool(user_data.get('email_verified', 0)),
+                        'name': user_data.get('name')
+                    }
+                }), 200
+        return jsonify({'valid': False}), 200
             
     except Exception as e:
         print(f"Token verification error: {e}")
         return jsonify({'valid': False}), 200
+
+# Email verification endpoints
+@app.route('/api/verify-email', methods=['POST'])
+def verify_email():
+    """Verify user email with token"""
+    try:
+        data = request.get_json()
+        token = data.get('token', '')
+        
+        if not token:
+            return jsonify({'error': 'Verification token is required'}), 400
+        
+        user = get_user_by_verification_token(token)
+        if not user:
+            return jsonify({'error': 'Invalid or expired verification token'}), 400
+        
+        if user.get('email_verified'):
+            return jsonify({'message': 'Email already verified'}), 200
+        
+        verify_user_email(user['id'])
+        
+        return jsonify({'message': 'Email verified successfully'}), 200
+        
+    except Exception as e:
+        print(f"Email verification error: {e}")
+        return jsonify({'error': 'Failed to verify email'}), 500
+
+@app.route('/api/resend-verification', methods=['POST'])
+def resend_verification():
+    """Resend verification email"""
+    try:
+        data = request.get_json()
+        token = data.get('token', '')  # Auth token
+        
+        if not token:
+            return jsonify({'error': 'Authentication required'}), 401
+        
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'error': 'Invalid token'}), 401
+        
+        user_id = payload.get('user_id')
+        user = get_user_by_id(user_id)
+        
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        
+        if user.get('email_verified'):
+            return jsonify({'message': 'Email already verified'}), 200
+        
+        # Generate new verification token
+        verification_token = secrets.token_urlsafe(32)
+        update_user_verification_token(user_id, verification_token)
+        
+        # Send verification email
+        email_sent = email_service.send_verification_email(user['email'], verification_token)
+        
+        if email_sent:
+            return jsonify({'message': 'Verification email sent'}), 200
+        else:
+            return jsonify({'error': 'Failed to send verification email. Please check email service configuration.'}), 500
+        
+    except Exception as e:
+        print(f"Resend verification error: {e}")
+        return jsonify({'error': 'Failed to resend verification email'}), 500
+
+# Password reset endpoints
+@app.route('/api/request-password-reset', methods=['POST'])
+def request_password_reset():
+    """Request password reset email"""
+    try:
+        data = request.get_json()
+        email = data.get('email', '').strip()
+        
+        if not email:
+            return jsonify({'error': 'Email is required'}), 400
+        
+        user = get_user_by_email(email)
+        if not user:
+            # Don't reveal if email exists for security
+            return jsonify({'message': 'If an account exists with this email, a password reset link has been sent'}), 200
+        
+        # Generate reset token
+        reset_token = secrets.token_urlsafe(32)
+        expires_at = datetime.utcnow() + timedelta(hours=1)
+        set_password_reset_token(email, reset_token, expires_at)
+        
+        # Send reset email
+        email_sent = email_service.send_password_reset_email(email, reset_token)
+        
+        if email_sent:
+            return jsonify({'message': 'If an account exists with this email, a password reset link has been sent'}), 200
+        else:
+            return jsonify({'error': 'Failed to send reset email. Please check email service configuration.'}), 500
+        
+    except Exception as e:
+        print(f"Password reset request error: {e}")
+        return jsonify({'error': 'Failed to process password reset request'}), 500
+
+@app.route('/api/reset-password', methods=['POST'])
+def reset_password():
+    """Reset password with token"""
+    try:
+        data = request.get_json()
+        token = data.get('token', '')
+        new_password = data.get('password', '')
+        
+        if not token or not new_password:
+            return jsonify({'error': 'Token and password are required'}), 400
+        
+        if not validate_password(new_password):
+            return jsonify({'error': 'Password must be at least 6 characters'}), 400
+        
+        user = get_user_by_reset_token(token)
+        if not user:
+            return jsonify({'error': 'Invalid or expired reset token'}), 400
+        
+        # Check if token expired
+        expires_at = user.get('reset_token_expires')
+        if expires_at:
+            expires_datetime = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+            if datetime.utcnow() > expires_datetime.replace(tzinfo=None):
+                return jsonify({'error': 'Reset token has expired'}), 400
+        
+        # Reset password
+        password_hash = generate_password_hash(new_password)
+        reset_user_password(user['id'], password_hash)
+        
+        return jsonify({'message': 'Password reset successfully'}), 200
+        
+    except Exception as e:
+        print(f"Password reset error: {e}")
+        return jsonify({'error': 'Failed to reset password'}), 500
+
+# User profile endpoints
+@app.route('/api/profile', methods=['GET'])
+def get_profile():
+    """Get user profile"""
+    try:
+        token = request.headers.get('Authorization', '').replace('Bearer ', '') or request.get_json().get('token', '') if request.is_json else ''
+        
+        if not token:
+            return jsonify({'error': 'Authentication required'}), 401
+        
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'error': 'Invalid token'}), 401
+        
+        user_id = payload.get('user_id')
+        user = get_user_by_id(user_id)
+        
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        
+        return jsonify({
+            'user': {
+                'id': user['id'],
+                'email': user['email'],
+                'email_verified': bool(user.get('email_verified', 0)),
+                'name': user.get('name'),
+                'created_at': user.get('created_at'),
+                'last_login': user.get('last_login')
+            }
+        }), 200
+        
+    except Exception as e:
+        print(f"Get profile error: {e}")
+        return jsonify({'error': 'Failed to get profile'}), 500
+
+@app.route('/api/profile', methods=['PUT'])
+def update_profile():
+    """Update user profile"""
+    try:
+        data = request.get_json()
+        token = request.headers.get('Authorization', '').replace('Bearer ', '') or data.get('token', '')
+        name = data.get('name', '').strip()
+        
+        if not token:
+            return jsonify({'error': 'Authentication required'}), 401
+        
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'error': 'Invalid token'}), 401
+        
+        user_id = payload.get('user_id')
+        
+        # Update profile
+        update_user_profile(user_id, name if name else None)
+        
+        # Get updated user data
+        user = get_user_by_id(user_id)
+        
+        return jsonify({
+            'message': 'Profile updated successfully',
+            'user': {
+                'id': user['id'],
+                'email': user['email'],
+                'email_verified': bool(user.get('email_verified', 0)),
+                'name': user.get('name')
+            }
+        }), 200
+        
+    except Exception as e:
+        print(f"Update profile error: {e}")
+        return jsonify({'error': 'Failed to update profile'}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, port=5001, host='0.0.0.0')
