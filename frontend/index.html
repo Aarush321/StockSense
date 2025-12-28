@@ -208,7 +208,12 @@
                             setUser(userData);
                         } else {
                             localStorage.removeItem('authToken');
+                            setUser(null);
                         }
+                        setLoading(false);
+                    }).catch(() => {
+                        localStorage.removeItem('authToken');
+                        setUser(null);
                         setLoading(false);
                     });
                 } else {
@@ -1525,12 +1530,60 @@
         }
 
         function AppContent() {
-            const [showSplash, setShowSplash] = useState(true);
+            const [showSplash, setShowSplash] = useState(false);
             const [currentView, setCurrentView] = useState('search');
             const [selectedSymbol, setSelectedSymbol] = useState(null);
             const [authView, setAuthView] = useState('login'); // 'login' or 'signup'
-            const { user, logout } = useContext(AuthContext);
+            const { user, logout, loading: authLoading } = useContext(AuthContext);
 
+            // Show login/signup screen if user is not authenticated
+            if (authLoading) {
+                return (
+                    <div className="min-h-screen bg-white flex items-center justify-center">
+                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-800"></div>
+                    </div>
+                );
+            }
+
+            if (!user) {
+                return (
+                    <div className="min-h-screen bg-white relative overflow-hidden">
+                        {/* Background gradient decoration */}
+                        <div className="absolute inset-0 bg-gradient-to-br from-gray-50 via-white to-gray-50 opacity-50"></div>
+                        <div className="absolute top-0 right-0 w-96 h-96 bg-gray-100 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob"></div>
+                        <div className="absolute top-0 left-0 w-96 h-96 bg-gray-100 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-2000"></div>
+                        <div className="absolute bottom-0 right-0 w-96 h-96 bg-gray-100 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-4000"></div>
+                        
+                        <div className="relative z-10 min-h-screen flex items-center justify-center px-4 py-12">
+                            <div className="w-full max-w-md">
+                                <div className="text-center mb-8">
+                                    <h1 className="text-4xl font-bold text-gray-800 mb-2">StockSense</h1>
+                                    <p className="text-gray-500">A tool for long-term investing</p>
+                                </div>
+                                {authView === 'login' ? (
+                                    <LoginForm
+                                        onSwitchToSignup={() => setAuthView('signup')}
+                                        onSuccess={() => {
+                                            // After successful login, show splash screen
+                                            setShowSplash(true);
+                                        }}
+                                    />
+                                ) : (
+                                    <SignupForm
+                                        onSwitchToLogin={() => setAuthView('login')}
+                                        onSuccess={() => {
+                                            // After successful signup, show splash screen
+                                            setShowSplash(true);
+                                        }}
+                                    />
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            // User is authenticated - show splash screen first, then main app
             if (showSplash) {
                 return <SplashScreen onComplete={() => setShowSplash(false)} />;
             }
