@@ -133,16 +133,25 @@
 
         // Authentication functions
         const signup = async (email, password) => {
-            const response = await fetch(`${API_BASE}/signup`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, password })
-            });
-            const data = await response.json();
-            if (!response.ok) {
-                throw new Error(data.error || 'Signup failed');
+            try {
+                const response = await fetch(`${API_BASE}/signup`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || 'Signup failed');
+                }
+                // Validate response structure
+                if (!data.token || !data.user) {
+                    throw new Error('Invalid response from server');
+                }
+                return data;
+            } catch (error) {
+                console.error('Signup API error:', error);
+                throw error;
             }
-            return data;
         };
 
         const login = async (email, password) => {
@@ -308,12 +317,22 @@
             }, []);
 
             const handleSignup = async (email, password) => {
-                const data = await signup(email, password);
-                localStorage.setItem('authToken', data.token);
-                setUser(data.user);
-                // Update user count
-                getUserCount().then(count => setUserCount(count));
-                return data;
+                try {
+                    const data = await signup(email, password);
+                    if (!data || !data.token || !data.user) {
+                        throw new Error('Invalid response from server');
+                    }
+                    localStorage.setItem('authToken', data.token);
+                    setUser(data.user);
+                    // Update user count (don't let this fail the signup)
+                    getUserCount().then(count => setUserCount(count)).catch(() => {
+                        // Silently fail - user count update is not critical
+                    });
+                    return data;
+                } catch (error) {
+                    console.error('Signup error:', error);
+                    throw error;
+                }
             };
 
             const handleLogin = async (email, password) => {
