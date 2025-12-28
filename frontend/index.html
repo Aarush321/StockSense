@@ -476,76 +476,124 @@
                                     </span>
                                 </div>
                             )}
-                            {ai_recommendation.reasoning && (
-                                <div className="mt-4">
-                                    <div className="text-gray-700 whitespace-pre-wrap leading-relaxed prose prose-sm max-w-none" style={{maxHeight: 'none', overflow: 'visible'}}>
-                                        {ai_recommendation.reasoning.split('\n').map((line, idx) => {
-                                            const trimmed = line.trim();
-                                            
-                                            // Empty lines - render as spacing
-                                            if (trimmed === '') {
-                                                return <div key={idx} className="h-2"></div>;
-                                            }
-                                            
-                                            // Format section headings (lines starting with **Number. or **Text)
-                                            if (trimmed.match(/^\*\*\d+\./) || (trimmed.startsWith('**') && !trimmed.startsWith('•'))) {
-                                                const boldMatch = trimmed.match(/\*\*(.*?)\*\*/);
-                                                if (boldMatch) {
-                                                    return (
-                                                        <div key={idx} className="mt-6 mb-3 first:mt-0">
-                                                            <h4 className="text-lg font-bold text-gray-900">{boldMatch[1]}</h4>
-                                                        </div>
-                                                    );
+                            {ai_recommendation.reasoning && (() => {
+                                const lines = ai_recommendation.reasoning.split('\n');
+                                let inBuySection = false;
+                                let inNotBuySection = false;
+                                
+                                return (
+                                    <div className="mt-4">
+                                        <div className="text-gray-700 whitespace-pre-wrap leading-relaxed prose prose-sm max-w-none" style={{maxHeight: 'none', overflow: 'visible'}}>
+                                            {lines.map((line, idx) => {
+                                                const trimmed = line.trim();
+                                                
+                                                // Empty lines - render as spacing
+                                                if (trimmed === '') {
+                                                    return <div key={idx} className="h-2"></div>;
                                                 }
-                                            }
-                                            
-                                            // Format bullet points with bold titles (• **Title**: text)
-                                            if (trimmed.startsWith('•') && trimmed.includes('**')) {
-                                                // Extract bold title and remaining text
-                                                const bulletMatch = trimmed.match(/^•\s*\*\*(.*?)\*\*:\s*(.*)$/);
-                                                if (bulletMatch) {
-                                                    const [, boldTitle, explanation] = bulletMatch;
-                                                    return (
-                                                        <div key={idx} className="mb-3 ml-6 flex items-start">
-                                                            <span className="text-gray-600 mr-2 mt-1">•</span>
-                                                            <div className="flex-1">
-                                                                <span className="font-semibold text-gray-900">{boldTitle}</span>
-                                                                <span className="text-gray-700">: {explanation}</span>
+                                                
+                                                // Check if we're entering buy/not buy sections
+                                                if (trimmed.includes('Reasons to Buy for Long-Term')) {
+                                                    inBuySection = true;
+                                                    inNotBuySection = false;
+                                                } else if (trimmed.includes('Reasons Not to Buy for Long-Term')) {
+                                                    inBuySection = false;
+                                                    inNotBuySection = true;
+                                                } else if (trimmed.match(/^\*\*\d+\./)) {
+                                                    // Reset section flags when we hit a new numbered section
+                                                    inBuySection = false;
+                                                    inNotBuySection = false;
+                                                }
+                                                
+                                                // Format section headings (lines starting with **Number. or **Text that aren't in buy/not-buy sections)
+                                                if (trimmed.match(/^\*\*\d+\./) || (trimmed.startsWith('**') && !trimmed.startsWith('•') && !inBuySection && !inNotBuySection)) {
+                                                    const boldMatch = trimmed.match(/\*\*(.*?)\*\*/);
+                                                    if (boldMatch && !inBuySection && !inNotBuySection) {
+                                                        return (
+                                                            <div key={idx} className="mt-6 mb-3 first:mt-0">
+                                                                <h4 className="text-lg font-bold text-gray-900">{boldMatch[1]}</h4>
                                                             </div>
-                                                        </div>
-                                                    );
+                                                        );
+                                                    }
                                                 }
-                                                // Fallback for bullet points with ** but different format
-                                                const parts = trimmed.replace(/^•\s*/, '').split(/\*\*(.*?)\*\*/);
-                                                if (parts.length >= 2) {
+                                                
+                                                // In buy/not-buy sections, treat lines that are just **Text** or **Text**: explanation as bullet points
+                                                if ((inBuySection || inNotBuySection) && trimmed.includes('**') && !trimmed.startsWith('•')) {
+                                                    // Format: **Title**: explanation OR just **Title**
+                                                    const matchWithColon = trimmed.match(/^\*\*(.*?)\*\*:\s*(.*)$/);
+                                                    if (matchWithColon) {
+                                                        const [, boldTitle, explanation] = matchWithColon;
+                                                        return (
+                                                            <div key={idx} className="mb-3 ml-6 flex items-start">
+                                                                <span className="text-gray-600 mr-2 mt-1">•</span>
+                                                                <div className="flex-1">
+                                                                    <span className="font-semibold text-gray-900">{boldTitle}</span>
+                                                                    <span className="text-gray-700">: {explanation}</span>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    }
+                                                    // Format: Just **Title** (no colon)
+                                                    const matchJustTitle = trimmed.match(/^\*\*(.*?)\*\*$/);
+                                                    if (matchJustTitle) {
+                                                        const [, boldTitle] = matchJustTitle;
+                                                        return (
+                                                            <div key={idx} className="mb-3 ml-6 flex items-start">
+                                                                <span className="text-gray-600 mr-2 mt-1">•</span>
+                                                                <span className="font-semibold text-gray-900">{boldTitle}</span>
+                                                            </div>
+                                                        );
+                                                    }
+                                                }
+                                                
+                                                // Format bullet points with bold titles (• **Title**: text)
+                                                if (trimmed.startsWith('•') && trimmed.includes('**')) {
+                                                    // Extract bold title and remaining text
+                                                    const bulletMatch = trimmed.match(/^•\s*\*\*(.*?)\*\*:\s*(.*)$/);
+                                                    if (bulletMatch) {
+                                                        const [, boldTitle, explanation] = bulletMatch;
+                                                        return (
+                                                            <div key={idx} className="mb-3 ml-6 flex items-start">
+                                                                <span className="text-gray-600 mr-2 mt-1">•</span>
+                                                                <div className="flex-1">
+                                                                    <span className="font-semibold text-gray-900">{boldTitle}</span>
+                                                                    <span className="text-gray-700">: {explanation}</span>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    }
+                                                    // Fallback for bullet points with ** but different format
+                                                    const parts = trimmed.replace(/^•\s*/, '').split(/\*\*(.*?)\*\*/);
+                                                    if (parts.length >= 2) {
+                                                        return (
+                                                            <div key={idx} className="mb-2 ml-6 flex items-start">
+                                                                <span className="text-gray-600 mr-2 mt-1">•</span>
+                                                                <div className="flex-1">
+                                                                    <span className="font-semibold text-gray-900">{parts[1]}</span>
+                                                                    <span className="text-gray-700">{parts.slice(2).join('')}</span>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    }
+                                                }
+                                                
+                                                // Regular bullet points (• text without bold)
+                                                if (trimmed.startsWith('•')) {
                                                     return (
                                                         <div key={idx} className="mb-2 ml-6 flex items-start">
                                                             <span className="text-gray-600 mr-2 mt-1">•</span>
-                                                            <div className="flex-1">
-                                                                <span className="font-semibold text-gray-900">{parts[1]}</span>
-                                                                <span className="text-gray-700">{parts.slice(2).join('')}</span>
-                                                            </div>
+                                                            <span className="flex-1 text-sm">{trimmed.substring(1).trim()}</span>
                                                         </div>
                                                     );
                                                 }
-                                            }
-                                            
-                                            // Regular bullet points (• text without bold)
-                                            if (trimmed.startsWith('•')) {
-                                                return (
-                                                    <div key={idx} className="mb-2 ml-6 flex items-start">
-                                                        <span className="text-gray-600 mr-2 mt-1">•</span>
-                                                        <span className="flex-1 text-sm">{trimmed.substring(1).trim()}</span>
-                                                    </div>
-                                                );
-                                            }
-                                            
-                                            // Regular paragraphs
-                                            return <p key={idx} className="mb-2 text-sm leading-relaxed">{trimmed}</p>;
-                                        })}
+                                                
+                                                // Regular paragraphs
+                                                return <p key={idx} className="mb-2 text-sm leading-relaxed">{trimmed}</p>;
+                                            })}
+                                        </div>
                                     </div>
-                                </div>
-                            )}
+                                );
+                            })()}
                         </div>
                     )}
 
