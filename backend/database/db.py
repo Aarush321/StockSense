@@ -276,3 +276,18 @@ def get_user_count():
     
     return row['count'] if row else 0
 
+def get_all_users():
+    """Get all registered users (for admin purposes)"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT id, email, name, created_at, last_login, email_verified
+        FROM users
+        ORDER BY created_at DESC
+    ''')
+    rows = cursor.fetchall()
+    conn.close()
+    
+    return [dict(row) for row in rows]
+

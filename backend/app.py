@@ -15,7 +15,7 @@ from database.db import (
     create_user, get_user_by_email, get_user_by_id, update_last_login, get_user_count,
     update_user_verification_token, verify_user_email, get_user_by_verification_token,
     set_password_reset_token, get_user_by_reset_token, reset_user_password,
-    update_user_profile
+    update_user_profile, get_all_users
 )
 from services.email_service import EmailService
 
@@ -471,6 +471,27 @@ def user_count():
     except Exception as e:
         print(f"User count error: {e}")
         return jsonify({'error': 'Failed to get user count'}), 500
+
+@app.route('/api/admin/users', methods=['GET'])
+def get_users():
+    """Get all registered users (admin endpoint)"""
+    try:
+        users = get_all_users()
+        # Return only safe user data (no password hashes)
+        user_list = []
+        for user in users:
+            user_list.append({
+                'id': user.get('id'),
+                'email': user.get('email'),
+                'name': user.get('name'),
+                'created_at': user.get('created_at'),
+                'last_login': user.get('last_login'),
+                'email_verified': bool(user.get('email_verified', 0))
+            })
+        return jsonify({'users': user_list, 'count': len(user_list)}), 200
+    except Exception as e:
+        print(f"Error getting users: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/verify-token', methods=['POST'])
 def verify_user_token():
