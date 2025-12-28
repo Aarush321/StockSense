@@ -1998,23 +1998,21 @@
             }
 
             if (!user) {
-                // Check for password reset token in URL
-                const urlParams = new URLSearchParams(window.location.search);
-                const resetToken = urlParams.get('token');
-                const verifyToken = urlParams.get('verifyToken');
+                // Check for email verification or password reset token in URL
+                const searchParams = new URLSearchParams(window.location.search);
+                const token = searchParams.get('token');
+                const isVerifyEmail = window.location.pathname.includes('verify-email') || 
+                                     window.location.search.includes('verify');
+                const isResetPassword = window.location.pathname.includes('reset-password') || 
+                                       window.location.search.includes('reset');
                 
-                // Handle email verification (check URL params)
-                const urlParams = new URLSearchParams(window.location.search);
-                const emailVerifyToken = urlParams.get('token') && window.location.pathname.includes('verify-email') 
-                    ? urlParams.get('token') 
-                    : null;
-                
-                if (emailVerifyToken) {
-                    return <EmailVerificationHandler token={emailVerifyToken} />;
+                // Handle email verification
+                if (token && isVerifyEmail) {
+                    return <EmailVerificationHandler token={token} />;
                 }
                 
                 // Handle password reset
-                if (resetToken) {
+                if (token && isResetPassword) {
                     return (
                         <div className="min-h-screen bg-white relative overflow-hidden">
                             <div className="absolute inset-0 bg-gradient-to-br from-gray-50 via-white to-gray-50 opacity-50"></div>
