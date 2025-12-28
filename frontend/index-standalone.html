@@ -1534,7 +1534,7 @@
             const [currentView, setCurrentView] = useState('search');
             const [selectedSymbol, setSelectedSymbol] = useState(null);
             const [authView, setAuthView] = useState('login'); // 'login' or 'signup'
-            const { user, logout, loading: authLoading } = useContext(AuthContext);
+            const { user, logout, userCount, loading: authLoading } = useContext(AuthContext);
 
             // Show login/signup screen if user is not authenticated
             if (authLoading) {
