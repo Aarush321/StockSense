@@ -320,6 +320,8 @@
                 const data = await login(email, password);
                 localStorage.setItem('authToken', data.token);
                 setUser(data.user);
+                // Update user count after login (in case it changed)
+                getUserCount().then(count => setUserCount(count));
                 return data;
             };
 
@@ -1681,8 +1683,6 @@
                 <div className="bg-white rounded-lg shadow-md p-8">
                     <h2 className="text-2xl font-bold text-gray-900 mb-6">Settings</h2>
                     <div className="space-y-6">
-                        <EmailVerificationBanner user={user} onResend={resendVerification} />
-                        
                         <div className="bg-gray-50 rounded-lg p-6 border border-gray-200">
                             <div className="flex items-center justify-between">
                                 <div>
@@ -2003,9 +2003,14 @@
                 const resetToken = urlParams.get('token');
                 const verifyToken = urlParams.get('verifyToken');
                 
-                // Handle email verification
-                if (verifyToken) {
-                    return <EmailVerificationHandler token={verifyToken} />;
+                // Handle email verification (check URL params)
+                const urlParams = new URLSearchParams(window.location.search);
+                const emailVerifyToken = urlParams.get('token') && window.location.pathname.includes('verify-email') 
+                    ? urlParams.get('token') 
+                    : null;
+                
+                if (emailVerifyToken) {
+                    return <EmailVerificationHandler token={emailVerifyToken} />;
                 }
                 
                 // Handle password reset
@@ -2015,7 +2020,7 @@
                             <div className="absolute inset-0 bg-gradient-to-br from-gray-50 via-white to-gray-50 opacity-50"></div>
                             <div className="relative z-10 min-h-screen flex items-center justify-center px-4 py-12">
                                 <PasswordResetForm
-                                    token={resetToken}
+                                    token={token}
                                     onSuccess={() => {
                                         setAuthView('login');
                                         window.history.replaceState({}, document.title, window.location.pathname);
