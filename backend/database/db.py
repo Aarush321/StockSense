@@ -11,15 +11,27 @@ def get_connection():
     return conn
 
 def init_db():
-    """Initialize database with starred stocks table"""
+    """Initialize database with starred stocks and users tables"""
     conn = get_connection()
     cursor = conn.cursor()
     
+    # Starred stocks table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS starred_stocks (
             symbol TEXT PRIMARY KEY,
             added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    # Users table for authentication
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_login TIMESTAMP
         )
     ''')
     
@@ -74,4 +86,59 @@ def update_stock_timestamp(symbol):
     
     conn.commit()
     conn.close()
+
+# User authentication functions
+def create_user(email, password_hash):
+    """Create a new user"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute('''
+            INSERT INTO users (email, password_hash)
+            VALUES (?, ?)
+        ''', (email.lower().strip(), password_hash))
+        conn.commit()
+        user_id = cursor.lastrowid
+        conn.close()
+        return user_id
+    except sqlite3.IntegrityError:
+        conn.close()
+        return None  # Email already exists
+
+def get_user_by_email(email):
+    """Get user by email"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('SELECT id, email, password_hash, created_at, last_login FROM users WHERE email = ?', (email.lower().strip(),))
+    row = cursor.fetchone()
+    conn.close()
+    
+    return dict(row) if row else None
+
+def update_last_login(user_id):
+    """Update last login timestamp"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        UPDATE users 
+        SET last_login = ? 
+        WHERE id = ?
+    ''', (datetime.now(), user_id))
+    
+    conn.commit()
+    conn.close()
+
+def get_user_count():
+    """Get total number of registered users"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('SELECT COUNT(*) as count FROM users')
+    row = cursor.fetchone()
+    conn.close()
+    
+    return row['count'] if row else 0
 

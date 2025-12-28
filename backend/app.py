@@ -1,18 +1,28 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
+import jwt
+import re
+from datetime import datetime, timedelta
+from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FutureTimeoutError
 from services.stock_service import StockService
 from services.ai_service import AIService
-from database.db import init_db, get_starred_stocks, add_starred_stock, remove_starred_stock
+from database.db import (
+    init_db, get_starred_stocks, add_starred_stock, remove_starred_stock,
+    create_user, get_user_by_email, update_last_login, get_user_count
+)
 
 # Load .env file from the backend directory
 env_path = Path(__file__).parent / '.env'
 load_dotenv(dotenv_path=env_path)
 
 app = Flask(__name__)
+
+# JWT secret key (use environment variable in production)
+app.config['SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'your-secret-key-change-in-production')
 
 # Configure CORS for production (allow Netlify domain)
 # Update ALLOWED_ORIGINS in Render environment variables with your Netlify URL
@@ -271,6 +281,163 @@ def get_multiple_prices():
 def health():
     """Health check endpoint"""
     return jsonify({'status': 'healthy'}), 200
+
+# Authentication helper functions
+def generate_token(user_id, email):
+    """Generate JWT token for user"""
+    payload = {
+        'user_id': user_id,
+        'email': email,
+        'exp': datetime.utcnow() + timedelta(days=7)  # Token expires in 7 days
+    }
+    return jwt.encode(payload, app.config['SECRET_KEY'], algorithm='HS256')
+
+def verify_token(token):
+    """Verify JWT token and return user info"""
+    try:
+        payload = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
+        return payload
+    except jwt.ExpiredSignatureError:
+        return None
+    except jwt.InvalidTokenError:
+        return None
+
+def validate_email(email):
+    """Validate email format"""
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return re.match(pattern, email) is not None
+
+def validate_password(password):
+    """Validate password (at least 6 characters)"""
+    return len(password) >= 6
+
+# Authentication endpoints
+@app.route('/api/signup', methods=['POST'])
+def signup():
+    """User signup endpoint"""
+    try:
+        data = request.get_json()
+        email = data.get('email', '').strip()
+        password = data.get('password', '')
+        
+        # Validation
+        if not email or not password:
+            return jsonify({'error': 'Email and password are required'}), 400
+        
+        if not validate_email(email):
+            return jsonify({'error': 'Invalid email format'}), 400
+        
+        if not validate_password(password):
+            return jsonify({'error': 'Password must be at least 6 characters'}), 400
+        
+        # Check if user already exists
+        existing_user = get_user_by_email(email)
+        if existing_user:
+            return jsonify({'error': 'Email already registered'}), 400
+        
+        # Create user
+        password_hash = generate_password_hash(password)
+        user_id = create_user(email, password_hash)
+        
+        if not user_id:
+            return jsonify({'error': 'Failed to create user'}), 500
+        
+        # Generate token
+        token = generate_token(user_id, email)
+        
+        return jsonify({
+            'message': 'User created successfully',
+            'token': token,
+            'user': {
+                'id': user_id,
+                'email': email
+            }
+        }), 201
+        
+    except Exception as e:
+        print(f"Signup error: {e}")
+        return jsonify({'error': 'An error occurred during signup'}), 500
+
+@app.route('/api/login', methods=['POST'])
+def login():
+    """User login endpoint"""
+    try:
+        data = request.get_json()
+        email = data.get('email', '').strip()
+        password = data.get('password', '')
+        
+        # Validation
+        if not email or not password:
+            return jsonify({'error': 'Email and password are required'}), 400
+        
+        # Get user
+        user = get_user_by_email(email)
+        if not user:
+            return jsonify({'error': 'Invalid email or password'}), 401
+        
+        # Check password
+        if not check_password_hash(user['password_hash'], password):
+            return jsonify({'error': 'Invalid email or password'}), 401
+        
+        # Update last login
+        update_last_login(user['id'])
+        
+        # Generate token
+        token = generate_token(user['id'], user['email'])
+        
+        return jsonify({
+            'message': 'Login successful',
+            'token': token,
+            'user': {
+                'id': user['id'],
+                'email': user['email']
+            }
+        }), 200
+        
+    except Exception as e:
+        print(f"Login error: {e}")
+        return jsonify({'error': 'An error occurred during login'}), 500
+
+@app.route('/api/logout', methods=['POST'])
+def logout():
+    """User logout endpoint (client-side token removal)"""
+    return jsonify({'message': 'Logout successful'}), 200
+
+@app.route('/api/user-count', methods=['GET'])
+def user_count():
+    """Get total number of registered users"""
+    try:
+        count = get_user_count()
+        return jsonify({'userCount': count}), 200
+    except Exception as e:
+        print(f"User count error: {e}")
+        return jsonify({'error': 'Failed to get user count'}), 500
+
+@app.route('/api/verify-token', methods=['POST'])
+def verify_user_token():
+    """Verify if a token is valid"""
+    try:
+        data = request.get_json()
+        token = data.get('token', '')
+        
+        if not token:
+            return jsonify({'valid': False}), 200
+        
+        payload = verify_token(token)
+        if payload:
+            return jsonify({
+                'valid': True,
+                'user': {
+                    'id': payload.get('user_id'),
+                    'email': payload.get('email')
+                }
+            }), 200
+        else:
+            return jsonify({'valid': False}), 200
+            
+    except Exception as e:
+        print(f"Token verification error: {e}")
+        return jsonify({'valid': False}), 200
 
 if __name__ == '__main__':
     app.run(debug=True, port=5001, host='0.0.0.0')
