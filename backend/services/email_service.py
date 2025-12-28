@@ -12,7 +12,8 @@ class EmailService:
         self.smtp_user = os.getenv('SMTP_USER', '')
         self.smtp_password = os.getenv('SMTP_PASSWORD', '')
         self.from_email = os.getenv('FROM_EMAIL', 'noreply@stocksense.com')
-        self.app_url = os.getenv('APP_URL', 'http://localhost:5001')
+        # Use frontend URL for email links (Netlify URL in production)
+        self.app_url = os.getenv('FRONTEND_URL', os.getenv('APP_URL', 'http://localhost:5001'))
         
     def send_email(self, to_email: str, subject: str, html_content: str, text_content: str = None) -> bool:
         """Send email using SendGrid or SMTP"""
@@ -83,6 +84,7 @@ class EmailService:
     
     def send_verification_email(self, to_email: str, verification_token: str) -> bool:
         """Send email verification email"""
+        # Use frontend URL with verify-email route
         verification_url = f"{self.app_url}/verify-email?token={verification_token}"
         
         html_content = f"""
