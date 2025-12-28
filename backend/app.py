@@ -634,12 +634,19 @@ def request_password_reset():
         set_password_reset_token(email, reset_token, expires_at)
         
         # Send reset email
-        email_sent = email_service.send_password_reset_email(email, reset_token)
-        
-        if email_sent:
+        try:
+            email_sent = email_service.send_password_reset_email(email, reset_token)
+            if email_sent:
+                print(f"Password reset email sent successfully to {email}")
+                return jsonify({'message': 'If an account exists with this email, a password reset link has been sent'}), 200
+            else:
+                print(f"Failed to send password reset email to {email} - email service not configured")
+                # Still return success to user for security (don't reveal if email exists)
+                return jsonify({'message': 'If an account exists with this email, a password reset link has been sent'}), 200
+        except Exception as e:
+            print(f"Error sending password reset email to {email}: {e}")
+            # Still return success to user for security
             return jsonify({'message': 'If an account exists with this email, a password reset link has been sent'}), 200
-        else:
-            return jsonify({'error': 'Failed to send reset email. Please check email service configuration.'}), 500
         
     except Exception as e:
         print(f"Password reset request error: {e}")

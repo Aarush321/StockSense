@@ -319,7 +319,6 @@
         function AuthProvider({ children }) {
             const [user, setUser] = useState(null);
             const [loading, setLoading] = useState(true);
-            const [userCount, setUserCount] = useState(0);
 
             useEffect(() => {
                 // Check for existing token on mount
@@ -341,8 +340,6 @@
                 } else {
                     setLoading(false);
                 }
-                // Load user count
-                getUserCount().then(count => setUserCount(count));
             }, []);
 
             const handleSignup = async (email, password) => {
@@ -353,10 +350,6 @@
                     }
                     localStorage.setItem('authToken', data.token);
                     setUser(data.user);
-                    // Update user count (don't let this fail the signup)
-                    getUserCount().then(count => setUserCount(count)).catch(() => {
-                        // Silently fail - user count update is not critical
-                    });
                     return data;
                 } catch (error) {
                     console.error('Signup error:', error);
@@ -368,8 +361,6 @@
                 const data = await login(email, password);
                 localStorage.setItem('authToken', data.token);
                 setUser(data.user);
-                // Update user count after login (in case it changed)
-                getUserCount().then(count => setUserCount(count));
                 return data;
             };
 
@@ -399,7 +390,7 @@
 
             return (
                 <AuthContext.Provider value={{
-                    user, loading, userCount,
+                    user, loading,
                     signup: handleSignup,
                     login: handleLogin,
                     logout: handleLogout,
@@ -1726,7 +1717,7 @@
         }
 
         // User Profile Settings Component
-        function UserProfileSettings({ user, userCount, onLogout }) {
+        function UserProfileSettings({ user, onLogout }) {
             const { resendVerification, updateProfile } = useContext(AuthContext);
             const [name, setName] = useState(user?.name || '');
             const [saving, setSaving] = useState(false);
@@ -1750,18 +1741,6 @@
                 <div className="bg-white rounded-lg shadow-md p-8">
                     <h2 className="text-2xl font-bold text-gray-900 mb-6">Settings</h2>
                     <div className="space-y-6">
-                        <div className="bg-gray-50 rounded-lg p-6 border border-gray-200">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <h3 className="text-lg font-semibold text-gray-900 mb-1">Total Registered Users</h3>
-                                    <p className="text-sm text-gray-600">Number of users who have signed up for StockSense</p>
-                                </div>
-                                <div className="text-right">
-                                    <div className="text-4xl font-bold text-gray-800">{userCount}</div>
-                                    <div className="text-sm text-gray-500 mt-1">{userCount === 1 ? 'user' : 'users'}</div>
-                                </div>
-                            </div>
-                        </div>
 
                         <div className="bg-gray-50 rounded-lg p-6 border border-gray-200">
                             <h3 className="text-lg font-semibold text-gray-900 mb-4">Your Profile</h3>
@@ -1817,7 +1796,7 @@
 
         // Signup Component
         function SignupForm({ onSwitchToLogin, onSuccess }) {
-            const { signup, userCount } = useContext(AuthContext);
+            const { signup } = useContext(AuthContext);
             const [email, setEmail] = useState('');
             const [password, setPassword] = useState('');
             const [confirmPassword, setConfirmPassword] = useState('');
@@ -1980,7 +1959,7 @@
 
         // Login Component
         function LoginForm({ onSwitchToSignup, onSwitchToReset, onSuccess }) {
-            const { login, userCount } = useContext(AuthContext);
+            const { login } = useContext(AuthContext);
             const [email, setEmail] = useState('');
             const [password, setPassword] = useState('');
             const [error, setError] = useState('');
@@ -2075,7 +2054,7 @@
             const [currentView, setCurrentView] = useState('search');
             const [selectedSymbol, setSelectedSymbol] = useState(null);
             const [authView, setAuthView] = useState('login'); // 'login', 'signup', or 'reset'
-            const { user, logout, userCount, loading: authLoading } = useContext(AuthContext);
+            const { user, logout, loading: authLoading } = useContext(AuthContext);
 
             // Show login/signup screen if user is not authenticated
             if (authLoading) {
@@ -2265,9 +2244,6 @@
                                                 <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
                                                 </svg>
-                                                <span className="text-xs text-gray-600">
-                                                    <span className="font-semibold">{userCount}</span> {userCount === 1 ? 'user' : 'users'} registered
-                                                </span>
                                             </div>
                                         )}
                                         <button
@@ -2383,7 +2359,7 @@
                                 </div>
                             )}
                             {currentView === 'settings' && (
-                                <UserProfileSettings user={user} userCount={userCount} onLogout={async () => {
+                                <UserProfileSettings user={user} onLogout={async () => {
                                     await logout();
                                     setCurrentView('search');
                                 }} />

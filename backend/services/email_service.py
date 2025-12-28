@@ -31,8 +31,9 @@ class EmailService:
             except Exception as e:
                 print(f"SMTP email error: {e}")
         
-        # If no email service configured, just log (for development)
-        print(f"Email service not configured. Would send to {to_email}: {subject}")
+        # If no email service configured, log error
+        print(f"❌ Email service not configured. Cannot send email to {to_email}: {subject}")
+        print(f"   Configure SENDGRID_API_KEY or SMTP settings in environment variables")
         return False
     
     def _send_via_sendgrid(self, to_email: str, subject: str, html_content: str, text_content: str = None) -> bool:
