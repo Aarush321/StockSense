@@ -64,7 +64,14 @@
         };
 
         const getStarredStocks = async () => {
-            const response = await fetch(`${API_BASE}/starred`);
+            const token = localStorage.getItem('authToken');
+            if (!token) return [];
+            
+            const response = await fetch(`${API_BASE}/starred`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
             if (!response.ok) return [];
             return response.json();
         };
@@ -80,15 +87,37 @@
         };
 
         const starStock = async (symbol) => {
-            await fetch(`${API_BASE}/star`, {
+            const token = localStorage.getItem('authToken');
+            if (!token) throw new Error('Authentication required');
+            
+            const response = await fetch(`${API_BASE}/star`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ symbol })
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ symbol, token })
             });
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.error || 'Failed to star stock');
+            }
         };
 
         const unstarStock = async (symbol) => {
-            await fetch(`${API_BASE}/star/${symbol}`, { method: 'DELETE' });
+            const token = localStorage.getItem('authToken');
+            if (!token) throw new Error('Authentication required');
+            
+            const response = await fetch(`${API_BASE}/star/${symbol}`, { 
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.error || 'Failed to unstar stock');
+            }
         };
 
         const getMarketNews = async () => {

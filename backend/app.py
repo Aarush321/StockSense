@@ -126,36 +126,72 @@ def analyze_stock():
 
 @app.route('/api/starred', methods=['GET'])
 def get_starred():
-    """Get all starred stocks"""
+    """Get all starred stocks for the authenticated user"""
     try:
-        starred = get_starred_stocks()
+        # Get token from Authorization header or request body
+        token = request.headers.get('Authorization', '').replace('Bearer ', '') or request.args.get('token', '')
+        
+        if not token:
+            return jsonify({'error': 'Authentication required'}), 401
+        
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'error': 'Invalid token'}), 401
+        
+        user_id = payload.get('user_id')
+        starred = get_starred_stocks(user_id)
         return jsonify(starred), 200
     except Exception as e:
+        print(f"Error getting starred stocks: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/star', methods=['POST'])
 def star_stock():
-    """Add stock to starred list"""
+    """Add stock to starred list for the authenticated user"""
     try:
+        # Get token from Authorization header or request body
+        token = request.headers.get('Authorization', '').replace('Bearer ', '') or request.get_json().get('token', '') if request.is_json else ''
+        
+        if not token:
+            return jsonify({'error': 'Authentication required'}), 401
+        
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'error': 'Invalid token'}), 401
+        
+        user_id = payload.get('user_id')
         data = request.get_json()
         symbol = data.get('symbol', '').upper().strip()
         
         if not symbol:
             return jsonify({'error': 'Stock symbol is required'}), 400
         
-        add_starred_stock(symbol)
+        add_starred_stock(user_id, symbol)
         return jsonify({'message': f'{symbol} added to starred stocks'}), 200
     except Exception as e:
+        print(f"Error starring stock: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/star/<symbol>', methods=['DELETE'])
 def unstar_stock(symbol):
-    """Remove stock from starred list"""
+    """Remove stock from starred list for the authenticated user"""
     try:
+        # Get token from Authorization header or request body
+        token = request.headers.get('Authorization', '').replace('Bearer ', '') or request.args.get('token', '')
+        
+        if not token:
+            return jsonify({'error': 'Authentication required'}), 401
+        
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'error': 'Invalid token'}), 401
+        
+        user_id = payload.get('user_id')
         symbol = symbol.upper().strip()
-        remove_starred_stock(symbol)
+        remove_starred_stock(user_id, symbol)
         return jsonify({'message': f'{symbol} removed from starred stocks'}), 200
     except Exception as e:
+        print(f"Error unstarring stock: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/refresh/<symbol>', methods=['GET'])

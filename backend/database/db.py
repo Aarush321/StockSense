@@ -15,14 +15,33 @@ def init_db():
     conn = get_connection()
     cursor = conn.cursor()
     
-    # Starred stocks table
+    # Starred stocks table (now user-specific)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS starred_stocks (
-            symbol TEXT PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            symbol TEXT NOT NULL,
             added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(user_id, symbol),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         )
     ''')
+    
+    # Add user_id column to existing starred_stocks table if it doesn't exist (migration)
+    try:
+        cursor.execute('ALTER TABLE starred_stocks ADD COLUMN user_id INTEGER')
+        # Delete all old starred stocks since we can't associate them with users
+        cursor.execute('DELETE FROM starred_stocks WHERE user_id IS NULL')
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+    
+    # Create index for faster lookups
+    try:
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_starred_stocks_user_id ON starred_stocks(user_id)')
+    except sqlite3.OperationalError:
+        pass
     
     # Users table for authentication
     cursor.execute('''
@@ -69,42 +88,47 @@ def init_db():
     conn.commit()
     conn.close()
 
-def get_starred_stocks():
-    """Get all starred stocks"""
+def get_starred_stocks(user_id):
+    """Get all starred stocks for a specific user"""
     conn = get_connection()
     cursor = conn.cursor()
     
-    cursor.execute('SELECT symbol, added_at, last_updated FROM starred_stocks ORDER BY added_at DESC')
+    cursor.execute('''
+        SELECT symbol, added_at, last_updated 
+        FROM starred_stocks 
+        WHERE user_id = ?
+        ORDER BY added_at DESC
+    ''', (user_id,))
     rows = cursor.fetchall()
     
     conn.close()
     
     return [dict(row) for row in rows]
 
-def add_starred_stock(symbol):
-    """Add a stock to starred list"""
+def add_starred_stock(user_id, symbol):
+    """Add a stock to starred list for a specific user"""
     conn = get_connection()
     cursor = conn.cursor()
     
     cursor.execute('''
-        INSERT OR REPLACE INTO starred_stocks (symbol, last_updated)
-        VALUES (?, ?)
-    ''', (symbol, datetime.now()))
+        INSERT OR REPLACE INTO starred_stocks (user_id, symbol, last_updated)
+        VALUES (?, ?, ?)
+    ''', (user_id, symbol, datetime.now()))
     
     conn.commit()
     conn.close()
 
-def remove_starred_stock(symbol):
-    """Remove a stock from starred list"""
+def remove_starred_stock(user_id, symbol):
+    """Remove a stock from starred list for a specific user"""
     conn = get_connection()
     cursor = conn.cursor()
     
-    cursor.execute('DELETE FROM starred_stocks WHERE symbol = ?', (symbol,))
+    cursor.execute('DELETE FROM starred_stocks WHERE user_id = ? AND symbol = ?', (user_id, symbol))
     
     conn.commit()
     conn.close()
 
-def update_stock_timestamp(symbol):
+def update_stock_timestamp(user_id, symbol):
     """Update last_updated timestamp for a stock"""
     conn = get_connection()
     cursor = conn.cursor()
@@ -112,8 +136,8 @@ def update_stock_timestamp(symbol):
     cursor.execute('''
         UPDATE starred_stocks 
         SET last_updated = ? 
-        WHERE symbol = ?
-    ''', (datetime.now(), symbol))
+        WHERE user_id = ? AND symbol = ?
+    ''', (datetime.now(), user_id, symbol))
     
     conn.commit()
     conn.close()
