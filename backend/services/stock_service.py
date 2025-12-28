@@ -961,15 +961,10 @@ class StockService:
         
         try:
             # 1. Try News API for general market news
-            if self.news_api_key:
+            if self.news_api_key and 'your_' not in self.news_api_key:
                 try:
-                    news_api_articles = self._get_news_api_market_news(limit * 3)
+                    news_api_articles = self._get_news_api_market_news(limit * 2)
                     for article in news_api_articles:
-                        # Filter for past 24 hours only
-                        article_date = article.get('date', 0)
-                        if article_date < cutoff_timestamp:
-                            continue
-                            
                         url = article.get('url', '')
                         headline = article.get('headline', '').strip().lower()
                         if url and url not in seen_urls and headline and headline not in seen_headlines:
@@ -980,15 +975,10 @@ class StockService:
                     print(f"News API market news error: {e}")
             
             # 2. Try Finnhub for general market news
-            if self.finnhub_key:
+            if self.finnhub_key and 'your_' not in self.finnhub_key:
                 try:
-                    finnhub_articles = self._get_finnhub_market_news(limit * 3)
+                    finnhub_articles = self._get_finnhub_market_news(limit * 2)
                     for article in finnhub_articles:
-                        # Filter for past 24 hours only
-                        article_date = article.get('date', 0)
-                        if article_date < cutoff_timestamp:
-                            continue
-                            
                         url = article.get('url', '')
                         headline = article.get('headline', '').strip().lower()
                         if url and url not in seen_urls and headline and headline not in seen_headlines:
@@ -998,23 +988,19 @@ class StockService:
                 except Exception as e:
                     print(f"Finnhub market news error: {e}")
             
-            # 3. Get from Yahoo Finance - general market news
-            try:
-                yfinance_articles = self._get_yfinance_market_news(limit * 3)
-                for article in yfinance_articles:
-                    # Filter for past 24 hours only
-                    article_date = article.get('date', 0)
-                    if article_date < cutoff_timestamp:
-                        continue
-                        
-                    url = article.get('url', '')
-                    headline = article.get('headline', '').strip().lower()
-                    if url and url not in seen_urls and headline and headline not in seen_headlines:
-                        all_news.append(article)
-                        seen_urls.add(url)
-                        seen_headlines.add(headline)
-            except Exception as e:
-                print(f"yfinance market news error: {e}")
+            # 3. Get from Yahoo Finance - general market news (fallback if others don't have enough)
+            if len(all_news) < limit:
+                try:
+                    yfinance_articles = self._get_yfinance_market_news(limit * 2)
+                    for article in yfinance_articles:
+                        url = article.get('url', '')
+                        headline = article.get('headline', '').strip().lower()
+                        if url and url not in seen_urls and headline and headline not in seen_headlines:
+                            all_news.append(article)
+                            seen_urls.add(url)
+                            seen_headlines.add(headline)
+                except Exception as e:
+                    print(f"yfinance market news error: {e}")
             
             # Sort by date (most recent first) and return
             all_news.sort(key=lambda x: x.get('date', 0), reverse=True)
@@ -1104,32 +1090,24 @@ class StockService:
                 news = response.json()
                 if news and isinstance(news, list):
                     result = []
-                    for item in news[:limit * 3]:
+                    for item in news[:limit * 5]:  # Get more to account for filtering
                         if item.get('headline'):
                             article_timestamp = item.get('datetime', 0)
-                            # Filter for past 24 hours only
-                            if article_timestamp < from_timestamp:
-                                continue
-                            
-                            # Prioritize market-moving news by checking headline keywords
-                            headline_lower = item.get('headline', '').lower()
-                            market_keywords = [
-                                'fed', 'federal reserve', 'interest rate', 'inflation', 'gdp',
-                                'jobs report', 'unemployment', 'earnings', 'market', 's&p',
-                                'dow', 'nasdaq', 'economic', 'cpi', 'ppi', 'fomc'
-                            ]
-                            
-                            # Only include if it contains market-moving keywords
-                            if any(keyword in headline_lower for keyword in market_keywords):
-                                result.append({
-                                    'headline': item.get('headline', ''),
-                                    'summary': item.get('summary', '')[:200] or 'No summary available',
-                                    'source': item.get('source', 'Finnhub'),
-                                    'url': item.get('url', ''),
-                                    'image': item.get('image', ''),
-                                    'date': article_timestamp
-                                })
-                    return result
+                            # Prefer recent news (past 24 hours), but include older if needed
+                            # Don't filter out old news if we don't have enough recent ones
+                            result.append({
+                                'headline': item.get('headline', ''),
+                                'summary': item.get('summary', '')[:200] or 'No summary available',
+                                'source': item.get('source', 'Finnhub'),
+                                'url': item.get('url', ''),
+                                'image': item.get('image', ''),
+                                'date': article_timestamp
+                            })
+                    
+                    # Sort by date (most recent first) and prioritize recent news
+                    result.sort(key=lambda x: x.get('date', 0), reverse=True)
+                    # Return most recent articles, up to the limit
+                    return result[:limit]
         except Exception as e:
             print(f"Finnhub market news fetch error: {e}")
         return []
@@ -1214,30 +1192,15 @@ class StockService:
                             except:
                                 date = 0
                         
-                        # Filter for past 24 hours only
-                        if date < cutoff_timestamp:
-                            continue
-                        
-                        # Prioritize market-moving news by checking headline and summary
-                        headline_lower = (headline or '').lower()
-                        summary_lower = (summary or '').lower()
-                        market_keywords = [
-                            'fed', 'federal reserve', 'interest rate', 'inflation', 'gdp',
-                            'jobs report', 'unemployment', 'earnings', 'market', 's&p',
-                            'dow', 'nasdaq', 'economic', 'cpi', 'ppi', 'fomc', 'monetary',
-                            'fiscal', 'trade', 'tariff', 'recession', 'rally', 'crash'
-                        ]
-                        
-                        # Only include if it contains market-moving keywords
-                        if headline and (any(keyword in headline_lower for keyword in market_keywords) or 
-                                        any(keyword in summary_lower for keyword in market_keywords)):
+                        # Include all news with headlines (removed strict keyword filtering)
+                        if headline:
                             result.append({
                                 'headline': headline.strip(),
                                 'summary': (summary.strip()[:200] if summary else 'No summary available'),
                                 'source': source,
                                 'url': url,
                                 'image': image,
-                                'date': date
+                                'date': date if date > 0 else int(datetime.now().timestamp())  # Use current time if date is missing
                             })
                     except Exception as e:
                         print(f"Error parsing yfinance market news item: {e}")
