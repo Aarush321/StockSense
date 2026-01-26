@@ -6,11 +6,29 @@ from datetime import datetime, timedelta
 import yfinance as yf
 from typing import Dict, List, Optional
 
+
+def _minimal_overview(symbol: str, current_price: float, change_percent: float, rate_limited: bool = False) -> Dict:
+    """Return a minimal company overview dict (e.g. when Yahoo returns 429)."""
+    return {
+        'error': 'Rate limited - limited data available' if rate_limited and current_price else (
+            'Rate limited - please try again in a moment' if rate_limited else None
+        ),
+        'name': symbol,
+        'sector': 'N/A',
+        'industry': 'N/A',
+        'marketCap': 0,
+        'currentPrice': round(current_price, 2),
+        'changePercent': round(change_percent, 2),
+        'description': 'Data temporarily unavailable due to rate limiting. Please try again in a moment.' if rate_limited else '',
+    }
+
+
 class StockService:
     def __init__(self):
         self.alpha_vantage_key = os.getenv('ALPHA_VANTAGE_KEY', '')
         self.news_api_key = os.getenv('NEWS_API_KEY', '')
         self.finnhub_key = os.getenv('FINNHUB_API_KEY', '')
+        self.fmp_api_key = os.getenv('FMP_API_KEY', '')  # Optional: Financial Modeling Prep (free tier)
         self._last_yfinance_request = 0
         self._yfinance_delay = 0.5  # Minimum 0.5 seconds between Yahoo Finance requests
     
@@ -80,6 +98,127 @@ class StockService:
         except Exception as e:
             print(f"Alpha Vantage quote error: {e}")
         return None
+    
+    def _get_yahoo_chart_direct(self, symbol: str) -> Optional[Dict]:
+        """Get price from Yahoo Finance chart API via direct HTTP (different endpoint than quoteSummary, may avoid 429)."""
+        try:
+            url = f'https://query1.finance.yahoo.com/v8/finance/chart/{symbol}'
+            params = {'interval': '1d', 'range': '5d'}
+            headers = {'User-Agent': 'Mozilla/5.0 (compatible; StockAnalysisTool/1.0)'}
+            response = requests.get(url, params=params, headers=headers, timeout=5)
+            if response.status_code != 200:
+                return None
+            data = response.json()
+            chart = data.get('chart', {})
+            results = chart.get('result', [])
+            if not results:
+                return None
+            meta = results[0].get('meta', {})
+            price = meta.get('regularMarketPrice') or meta.get('previousClose')
+            if not price:
+                return None
+            current_price = float(price)
+            prev_close = float(meta.get('previousClose', current_price))
+            change_percent = round(((current_price - prev_close) / prev_close * 100), 2) if prev_close else 0
+            return {
+                'currentPrice': round(current_price, 2),
+                'previousClose': round(prev_close, 2),
+                'changePercent': change_percent
+            }
+        except Exception as e:
+            print(f"Yahoo chart direct error for {symbol}: {e}")
+        return None
+    
+    def _get_fmp_quote(self, symbol: str) -> Optional[Dict]:
+        """Get stock quote from Financial Modeling Prep (optional, free tier). Set FMP_API_KEY in env."""
+        if not self.fmp_api_key or 'your_' in self.fmp_api_key:
+            return None
+        try:
+            url = 'https://financialmodelingprep.com/api/v3/quote/' + symbol
+            params = {'apikey': self.fmp_api_key}
+            response = requests.get(url, params=params, timeout=5)
+            if response.status_code != 200:
+                return None
+            data = response.json()
+            if not data or not isinstance(data, list) or len(data) == 0:
+                return None
+            q = data[0]
+            current_price = q.get('price')
+            if current_price is None:
+                return None
+            current_price = float(current_price)
+            prev_close = float(q.get('previousClose', current_price))
+            change_percent = float(q.get('changesPercentage', 0) or 0)
+            return {
+                'currentPrice': round(current_price, 2),
+                'previousClose': round(prev_close, 2),
+                'changePercent': round(change_percent, 2)
+            }
+        except Exception as e:
+            print(f"FMP quote error for {symbol}: {e}")
+        return None
+    
+    def _get_price_from_fallbacks(self, symbol: str) -> Optional[Dict]:
+        """Try alternate price sources when primary (Finnhub/AV/yfinance) fail. Order: Yahoo chart direct, FMP."""
+        quote = self._get_yahoo_chart_direct(symbol)
+        if quote and quote.get('currentPrice'):
+            return quote
+        quote = self._get_fmp_quote(symbol)
+        if quote and quote.get('currentPrice'):
+            return quote
+        return None
+    
+    def _get_yfinance_price_only(self, symbol: str) -> Optional[Dict]:
+        """Get current price and change from yfinance only. Tries history first, then info (regularMarketPrice/currentPrice)."""
+        try:
+            self._throttle_yfinance()
+            ticker = yf.Ticker(symbol)
+            current_price = None
+            change_percent = 0
+            prev_close = None
+            for period in ('5d', '1d'):
+                try:
+                    self._throttle_yfinance()
+                    hist = ticker.history(period=period)
+                    if hist is not None and not hist.empty and 'Close' in hist.columns:
+                        current_price = float(hist['Close'].iloc[-1])
+                        if len(hist) > 1:
+                            prev_close = float(hist['Close'].iloc[-2])
+                            change_percent = round(((current_price - prev_close) / prev_close * 100), 2)
+                        else:
+                            prev_close = current_price
+                        break
+                except Exception:
+                    continue
+            if current_price is None:
+                try:
+                    info = ticker.info
+                    if info:
+                        current_price = (
+                            info.get('regularMarketPrice') or
+                            info.get('currentPrice') or
+                            info.get('previousClose') or
+                            info.get('regularMarketOpen') or
+                            0
+                        )
+                        if current_price:
+                            current_price = float(current_price)
+                        prev_close = info.get('previousClose') or current_price
+                        if prev_close:
+                            prev_close = float(prev_close)
+                            change_percent = round(((current_price - prev_close) / prev_close * 100), 2)
+                except Exception:
+                    pass
+            if current_price is not None and current_price > 0:
+                return {
+                    'currentPrice': round(current_price, 2),
+                    'previousClose': round(prev_close or current_price, 2),
+                    'changePercent': change_percent
+                }
+        except Exception as e:
+            print(f"yfinance price-only error for {symbol}: {e}")
+        # Fallbacks: Yahoo chart API (direct HTTP) and Financial Modeling Prep
+        return self._get_price_from_fallbacks(symbol)
     
     def _get_finnhub_recommendations(self, symbol: str) -> Optional[Dict]:
         """Get analyst recommendations from Finnhub"""
@@ -160,7 +299,7 @@ class StockService:
                         'marketCap': int(float(data.get('MarketCapitalization', 0))),
                         'peRatio': float(data.get('PERatio', 0)) if data.get('PERatio') != 'None' else None,
                         'description': data.get('Description', ''),
-                        'currentPrice': float(data.get('52WeekHigh', 0)) if data.get('52WeekHigh') != 'None' else 0,
+                        'currentPrice': 0,  # Set by quote/price fetch below
                         'changePercent': 0  # Alpha Vantage doesn't provide this in overview
                     }
         except Exception as e:
@@ -188,18 +327,15 @@ class StockService:
                         alpha_data['currentPrice'] = av_quote['currentPrice']
                         alpha_data['changePercent'] = av_quote['changePercent']
                     else:
-                        # Last resort: try yfinance for price only
-                        try:
-                            self._throttle_yfinance()
-                            ticker = yf.Ticker(symbol)
-                            current_data = ticker.history(period='1d')
-                            if not current_data.empty:
-                                alpha_data['currentPrice'] = round(current_data['Close'].iloc[-1], 2)
-                                if len(current_data) > 1:
-                                    prev_close = current_data['Close'].iloc[-2]
-                                    alpha_data['changePercent'] = round(((alpha_data['currentPrice'] - prev_close) / prev_close * 100), 2)
-                        except:
-                            pass
+                        yf_quote = self._get_yfinance_price_only(symbol)
+                        if yf_quote:
+                            alpha_data['currentPrice'] = yf_quote['currentPrice']
+                            alpha_data['changePercent'] = yf_quote['changePercent']
+                if not alpha_data.get('currentPrice'):
+                    yf_quote = self._get_yfinance_price_only(symbol)
+                    if yf_quote:
+                        alpha_data['currentPrice'] = yf_quote['currentPrice']
+                        alpha_data['changePercent'] = yf_quote['changePercent']
                 return alpha_data
         
         # Fallback to yfinance
@@ -213,53 +349,62 @@ class StockService:
                 # Handle rate limiting gracefully
                 if hasattr(e, 'response') and e.response and e.response.status_code == 429:
                     print(f"yfinance info rate limited (429) for {symbol}")
-                    # Try to get price from history as fallback
+                    # Try history then dedicated price helper (different endpoints, may not be rate limited)
                     try:
-                        current_data = ticker.history(period='1d')
-                        if not current_data.empty:
-                            current_price = current_data['Close'].iloc[-1]
-                            return {
-                                'error': 'Rate limited - limited data available',
-                                'name': symbol,
-                                'sector': 'N/A',
-                                'industry': 'N/A',
-                                'marketCap': 0,
-                                'currentPrice': round(current_price, 2),
-                                'changePercent': 0,
-                                'description': 'Data temporarily unavailable due to rate limiting. Please try again in a moment.'
-                            }
-                    except:
+                        current_data = ticker.history(period='5d')
+                        if current_data is not None and not current_data.empty and 'Close' in current_data.columns:
+                            current_price = float(current_data['Close'].iloc[-1])
+                            prev = float(current_data['Close'].iloc[-2]) if len(current_data) > 1 else current_price
+                            chg = round(((current_price - prev) / prev * 100), 2) if prev else 0
+                            return _minimal_overview(symbol, current_price, chg, rate_limited=True)
+                    except Exception:
                         pass
-                    # Return minimal data if history also fails
-                    return {
-                        'error': 'Rate limited - please try again in a moment',
-                        'name': symbol,
-                        'sector': 'N/A',
-                        'industry': 'N/A',
-                        'marketCap': 0,
-                        'currentPrice': 0,
-                        'changePercent': 0,
-                        'description': 'Data temporarily unavailable due to rate limiting. Please try again in a moment.'
-                    }
+                    quote = self._get_yfinance_price_only(symbol)
+                    if quote and quote.get('currentPrice'):
+                        return _minimal_overview(symbol, quote['currentPrice'], quote.get('changePercent', 0), rate_limited=True)
+                    return _minimal_overview(symbol, 0, 0, rate_limited=True)
                 raise
             
-            # Get current price - handle rate limiting here too
+            # Get current price - try 5d then 1d history, then info (regularMarketPrice is common for equities)
+            current_price = 0
+            prev_close = None
+            change_percent = 0
             try:
-                self._throttle_yfinance()  # Add delay before history request
-                current_data = ticker.history(period='1d')
-                current_price = current_data['Close'].iloc[-1] if not current_data.empty else (info.get('currentPrice', 0) if info else 0)
+                for period in ('5d', '1d'):
+                    try:
+                        self._throttle_yfinance()
+                        current_data = ticker.history(period=period)
+                        if current_data is not None and not current_data.empty and 'Close' in current_data.columns:
+                            current_price = float(current_data['Close'].iloc[-1])
+                            if len(current_data) > 1:
+                                prev_close = float(current_data['Close'].iloc[-2])
+                                change_percent = round(((current_price - prev_close) / prev_close * 100), 2)
+                            break
+                    except Exception:
+                        continue
             except requests.exceptions.HTTPError as e:
                 if hasattr(e, 'response') and e.response and e.response.status_code == 429:
                     print(f"yfinance history rate limited (429) for {symbol}")
-                    current_price = info.get('currentPrice', 0) if info else 0
-                else:
-                    current_price = info.get('currentPrice', 0) if info else 0
-            except Exception:
-                current_price = info.get('currentPrice', 0) if info else 0
-            
-            # Get previous close for change calculation
-            prev_close = info.get('previousClose', current_price)
-            change_percent = ((current_price - prev_close) / prev_close * 100) if prev_close else 0
+            if not current_price and info:
+                current_price = (
+                    info.get('regularMarketPrice') or
+                    info.get('currentPrice') or
+                    info.get('previousClose') or
+                    info.get('regularMarketOpen') or
+                    0
+                )
+                current_price = float(current_price) if current_price else 0
+            if not current_price:
+                yf_quote = self._get_yfinance_price_only(symbol)
+                if yf_quote:
+                    current_price = yf_quote['currentPrice']
+                    prev_close = yf_quote.get('previousClose', current_price)
+                    change_percent = yf_quote.get('changePercent', 0)
+            if prev_close is None and info:
+                prev_close = info.get('previousClose', current_price)
+            prev_close = prev_close or current_price
+            if prev_close and current_price and change_percent == 0:
+                change_percent = round(((current_price - prev_close) / prev_close * 100), 2)
             
             # Calculate years since IPO
             ipo_date = info.get('ipoDate')
@@ -353,22 +498,21 @@ class StockService:
                 'creditRating': credit_rating_str
             }
         except requests.exceptions.HTTPError as e:
-            # Handle rate limiting and other HTTP errors
             if hasattr(e, 'response') and e.response and e.response.status_code == 429:
                 print(f"Company overview rate limited (429) for {symbol}")
-                return {
-                    'error': 'Rate limited - please try again in a moment',
-                    'name': symbol,
-                    'sector': 'N/A',
-                    'industry': 'N/A',
-                    'marketCap': 0,
-                    'currentPrice': 0,
-                    'changePercent': 0,
-                    'description': 'Data temporarily unavailable due to rate limiting. Please try again in a moment.'
-                }
+                quote = self._get_yfinance_price_only(symbol)
+                if quote and quote.get('currentPrice'):
+                    return _minimal_overview(symbol, quote['currentPrice'], quote.get('changePercent', 0), rate_limited=True)
+                return _minimal_overview(symbol, 0, 0, rate_limited=True)
             raise
         except Exception as e:
             print(f"Company overview error: {e}")
+            # yfinance often raises 429 as a generic exception; try price-only fetch (different endpoint)
+            err_str = str(e).lower()
+            if '429' in err_str or 'too many requests' in err_str:
+                quote = self._get_yfinance_price_only(symbol)
+                if quote and quote.get('currentPrice'):
+                    return _minimal_overview(symbol, quote['currentPrice'], quote.get('changePercent', 0), rate_limited=True)
             return {
                 'error': f'Failed to fetch company data: {str(e)}',
                 'name': symbol,
