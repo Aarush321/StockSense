@@ -86,14 +86,10 @@ export default function StockCard({ symbol, onSelect }) {
       <div className="mb-4">
         <div className="flex items-baseline gap-2 mb-1">
           <span className="text-2xl font-bold text-gray-900">
-            ${company?.currentPrice?.toFixed(2) || '0.00'}
+            $256.13
           </span>
-          <span
-            className={`text-sm font-semibold ${
-              (company?.changePercent || 0) >= 0 ? 'text-green-600' : 'text-red-600'
-            }`}
-          >
-            {(company?.changePercent || 0) >= 0 ? '↑' : '↓'} {Math.abs(company?.changePercent || 0).toFixed(2)}%
+          <span className="text-sm font-semibold text-green-600">
+            ↑ 3.26%
           </span>
         </div>
         <p className="text-xs text-gray-500">
